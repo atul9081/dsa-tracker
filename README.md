@@ -1,6 +1,6 @@
 # ⚡ DSA Tracker
 
-A personal **blind-mode** LeetCode practice tracker. Problems reveal their topic tags and difficulty *only after* you mark your status — keeping practice honest.
+A personal **blind-mode** LeetCode practice tracker. Problems reveal their topic tags and difficulty _only after_ you mark your status — keeping practice honest.
 
 **Live:** [dsa-tracker-pi-six.vercel.app](https://dsa-tracker-pi-six.vercel.app)
 
@@ -17,12 +17,12 @@ A personal **blind-mode** LeetCode practice tracker. Problems reveal their topic
 
 ## Stack
 
-| Layer | Tech |
-|-------|------|
-| Framework | Next.js 14 (App Router, TypeScript) |
-| Database | Supabase (Postgres) |
-| Styling | Vanilla CSS (dark theme, Inter font) |
-| Hosting | Vercel |
+| Layer     | Tech                                 |
+| --------- | ------------------------------------ |
+| Framework | Next.js 14 (App Router, TypeScript)  |
+| Database  | Supabase (Postgres)                  |
+| Styling   | Vanilla CSS (dark theme, Inter font) |
+| Hosting   | Vercel                               |
 
 ---
 
@@ -70,20 +70,21 @@ dsa-tracker/
 
 ### OLT Topic Scores
 
-| Score | Topics |
-|-------|--------|
-| 10 | Dynamic Programming, Graphs |
-| 9 | DFS, BFS, Trees, Binary Search |
-| 8 | Two Pointers, Sliding Window, Backtracking, Heap |
-| 7 | Arrays, Stack, Hash Table, Greedy |
-| 6 | String, Linked List, Union-Find |
-| 5 | Trie, Bit Manipulation, Prefix Sum |
+| Score | Topics                                           |
+| ----- | ------------------------------------------------ |
+| 10    | Dynamic Programming, Graphs                      |
+| 9     | DFS, BFS, Trees, Binary Search                   |
+| 8     | Two Pointers, Sliding Window, Backtracking, Heap |
+| 7     | Arrays, Stack, Hash Table, Greedy                |
+| 6     | String, Linked List, Union-Find                  |
+| 5     | Trie, Bit Manipulation, Prefix Sum               |
 
 ---
 
 ## Local Setup
 
 ### Prerequisites
+
 - Node.js ≥ 18 (v24 recommended)
 - A [Supabase](https://supabase.com) project
 
@@ -152,6 +153,7 @@ npx tsx scripts/seed.ts
 ```
 
 The seed script:
+
 - Deduplicates problems across all JSON files
 - Filters to free, non-database, OLT-relevant problems
 - Fetches descriptions from `leetcode.ca/all/{id}.html`
@@ -178,10 +180,10 @@ npm run dev
 
 ## Extending
 
-| Feature | Where to change |
-|---------|----------------|
-| Daily problem count | `config/queue.ts` → `dailyCount` |
-| Difficulty split | `config/queue.ts` → `hardCount / mediumCount` |
-| Add/remove OLT topics | `config/topics.ts` |
-| Add more problems | Drop new JSON in `data/` → re-run `scripts/seed.ts` |
-| Add user auth | Supabase Auth + RLS policies |
+| Feature               | Where to change                                     |
+| --------------------- | --------------------------------------------------- |
+| Daily problem count   | `config/queue.ts` → `dailyCount`                    |
+| Difficulty split      | `config/queue.ts` → `hardCount / mediumCount`       |
+| Add/remove OLT topics | `config/topics.ts`                                  |
+| Add more problems     | Drop new JSON in `data/` → re-run `scripts/seed.ts` |
+| Add user auth         | Supabase Auth + RLS policies                        |

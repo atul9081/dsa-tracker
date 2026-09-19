@@ -1,7 +1,7 @@
 export const QUEUE_CONFIG = {
-  dailyCount: 4,
+  dailyCount: 5,
   hardCount: 2,
-  mediumCount: 2,
+  mediumCount: 3,
   easyCount: 0,
   topicWeightExponent: 2,
   difficultyMultiplier: {

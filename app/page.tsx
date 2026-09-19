@@ -47,7 +47,8 @@ export default function DailyQueuePage() {
     );
   };
 
-  const solved = problems.filter(p => p.status === 'SOLVED').length;
+  const solved   = problems.filter(p => p.status === 'SOLVED').length;
+  const attempting = problems.filter(p => p.status === 'ATTEMPTING').length;
 
   // Format date nicely
   const dateLabel = date
@@ -67,18 +68,22 @@ export default function DailyQueuePage() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{dateLabel}</p>
         )}
         {!loading && problems.length > 0 && (
-          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              padding: '6px 14px',
-              fontSize: '14px',
-              fontWeight: 600,
+          <div style={{ marginTop: '10px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+            <span style={{
+              background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+              borderRadius: '8px', padding: '5px 12px', fontSize: '13px', fontWeight: 600,
               color: solved === problems.length ? 'var(--accent-green)' : 'var(--text-primary)',
-            }}>
-              {solved} / {problems.length} done
-            </div>
+            }}>✅ {solved} solved</span>
+            {attempting > 0 && (
+              <span style={{
+                background: 'var(--bg-elevated)', border: '1px solid var(--accent-amber)44',
+                borderRadius: '8px', padding: '5px 12px', fontSize: '13px', fontWeight: 600,
+                color: 'var(--accent-amber)',
+              }}>🔄 {attempting} attempting</span>
+            )}
+            <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+              of {problems.length} problems
+            </span>
           </div>
         )}
       </div>
@@ -113,6 +118,7 @@ export default function DailyQueuePage() {
           {!confirm ? (
             <button
               onClick={() => setConfirm(true)}
+              title="Get a fresh set of problems for today"
               style={{
                 background: 'var(--bg-elevated)',
                 border: '1px solid var(--border)',
@@ -124,12 +130,12 @@ export default function DailyQueuePage() {
                 cursor: 'pointer',
               }}
             >
-              🔄 Regenerate Queue
+              🎲 Get new problems
             </button>
           ) : (
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', alignItems: 'center' }}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>
-                Replace today&apos;s queue?
+                Replace today&apos;s problems with a fresh set?
               </span>
               <button
                 onClick={regenerate}

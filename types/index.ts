@@ -1,5 +1,5 @@
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
-export type Status = 'TO_DO' | 'ATTEMPTED' | 'DEBUGGING' | 'SOLVED';
+export type Status = 'TO_DO' | 'ATTEMPTING' | 'SOLVED';
 
 export interface Problem {
   id: number;

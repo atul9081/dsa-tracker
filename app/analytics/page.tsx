@@ -55,10 +55,9 @@ function ProgressBar({ label, solved, total, color }: { label: string; solved: n
 
 function StatusPie({ byStatus }: { byStatus: Record<Status, number> }) {
   const STATUS_COLORS: Record<Status, string> = {
-    SOLVED:    'var(--accent-green)',
-    ATTEMPTED: 'var(--accent-blue)',
-    DEBUGGING: 'var(--accent-amber)',
-    TO_DO:     'var(--accent-gray)',
+    SOLVED:     'var(--accent-green)',
+    ATTEMPTING: 'var(--accent-amber)',
+    TO_DO:      'var(--accent-gray)',
   };
   const entries = (Object.entries(byStatus) as [Status, number][]).filter(([, v]) => v > 0);
   const total = entries.reduce((s, [, v]) => s + v, 0);
@@ -121,7 +120,7 @@ export default function AnalyticsPage() {
       const { data } = await sb.from('problems_with_status').select('*');
       const problems = (data as ProblemWithStatus[]) ?? [];
 
-      const byStatus: Record<Status, number> = { TO_DO: 0, ATTEMPTED: 0, DEBUGGING: 0, SOLVED: 0 };
+      const byStatus: Record<Status, number> = { TO_DO: 0, ATTEMPTING: 0, SOLVED: 0 };
       const byDiff: Record<Difficulty, { solved: number; total: number }> = {
         EASY:   { solved: 0, total: 0 },
         MEDIUM: { solved: 0, total: 0 },
@@ -168,11 +167,10 @@ export default function AnalyticsPage() {
 
       {/* Stat cards */}
       <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', marginBottom: '32px' }} className="fade-in">
-        <StatCard label="Total"     value={total}                 />
-        <StatCard label="Solved"    value={byStatus.SOLVED}    color="var(--accent-green)" />
-        <StatCard label="Attempted" value={byStatus.ATTEMPTED} color="var(--accent-blue)"  />
-        <StatCard label="Debugging" value={byStatus.DEBUGGING} color="var(--accent-amber)" />
-        <StatCard label="To-Do"     value={byStatus.TO_DO}     color="var(--accent-gray)"  />
+        <StatCard label="Total"      value={total}                  />
+        <StatCard label="Solved"     value={byStatus.SOLVED}     color="var(--accent-green)" />
+        <StatCard label="Attempting" value={byStatus.ATTEMPTING}  color="var(--accent-amber)" />
+        <StatCard label="To-Do"      value={byStatus.TO_DO}      color="var(--accent-gray)"  />
       </div>
 
       {/* Difficulty breakdown */}

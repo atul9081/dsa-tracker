@@ -8,11 +8,10 @@ import { OLT_TOPICS } from '@/config/topics';
 const PAGE_SIZE = 50;
 
 const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '',          label: 'All Statuses' },
-  { value: 'TO_DO',    label: 'To-Do'         },
-  { value: 'ATTEMPTED',label: 'Attempted'     },
-  { value: 'DEBUGGING',label: 'Debugging'     },
-  { value: 'SOLVED',   label: 'Solved'        },
+  { value: '',           label: 'All Statuses' },
+  { value: 'TO_DO',     label: 'To-Do'         },
+  { value: 'ATTEMPTING',label: 'Attempting'    },
+  { value: 'SOLVED',    label: 'Solved'        },
 ];
 
 const DIFF_OPTIONS: Array<{ value: string; label: string }> = [
