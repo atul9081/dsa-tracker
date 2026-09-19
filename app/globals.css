@@ -1,49 +1,118 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg-primary:    #0f0f13;
+  --bg-card:       #16161e;
+  --bg-elevated:   #1e1e28;
+  --border:        #2a2a38;
+
+  --text-primary:  #e8e8f0;
+  --text-secondary:#8888a8;
+  --text-muted:    #55556a;
+
+  --accent-green:  #22c55e;
+  --accent-blue:   #3b82f6;
+  --accent-amber:  #f59e0b;
+  --accent-gray:   #6b7280;
+
+  --diff-easy:     #22c55e;
+  --diff-medium:   #eab308;
+  --diff-hard:     #ef4444;
+
+  --radius:        12px;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-html {
-  height: 100%;
-}
-
-html,
-body {
-  max-width: 100vw;
-  overflow-x: hidden;
-}
-
-body {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
-* {
+*, *::before, *::after {
   box-sizing: border-box;
-  padding: 0;
   margin: 0;
+  padding: 0;
 }
 
-a {
-  color: inherit;
-  text-decoration: none;
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
 }
 
-@media (prefers-color-scheme: dark) {
-  html {
-    color-scheme: dark;
-  }
+/* ── Scrollbar ─────────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-primary); }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ── Page wrapper ──────────────────────────────────────────────────────────── */
+.page-container {
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 24px;
+}
+
+/* ── Card hover effect ─────────────────────────────────────────────────────── */
+.problem-card:hover {
+  border-color: var(--border) !important;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.3);
+}
+
+/* ── Problem description HTML ──────────────────────────────────────────────── */
+.problem-description p   { margin-bottom: 10px; }
+.problem-description pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  overflow-x: auto;
+  font-size: 13px;
+  margin-bottom: 10px;
+  font-family: 'Fira Code', 'Courier New', monospace;
+}
+.problem-description code {
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--accent-amber);
+}
+.problem-description strong { color: var(--text-primary); font-weight: 600; }
+.problem-description ol,
+.problem-description ul    { padding-left: 20px; margin-bottom: 10px; }
+.problem-description li    { margin-bottom: 4px; }
+.problem-description img   { max-width: 100%; border-radius: 8px; margin: 8px 0; }
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+button:hover { opacity: 0.85; }
+button:active { transform: scale(0.97); }
+
+/* ── Table ─────────────────────────────────────────────────────────────────── */
+table { border-collapse: collapse; width: 100%; }
+thead th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Animations ────────────────────────────────────────────────────────────── */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.fade-in { animation: fadeIn 0.25s ease forwards; }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+.spinner {
+  width: 20px; height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent-blue);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
 }
