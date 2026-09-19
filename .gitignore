@@ -28,6 +28,10 @@
 plans/
 context/
 
+# AI agent config files (dev tooling)
+AGENTS.md
+CLAUDE.md
+
 # debug
 npm-debug.log*
 yarn-debug.log*
