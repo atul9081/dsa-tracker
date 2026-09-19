@@ -21,6 +21,7 @@ if (!SUPABASE_URL || !SERVICE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
+
 // ── OLT scoring ───────────────────────────────────────────────────────────────
 const TOPIC_SCORE_MAP: Record<string, number> = {
   'dynamic-programming':  10,

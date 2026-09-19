@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase-server';
+import { createClient } from '@/lib/supabase-server';
 import type { ProblemWithStatus } from '@/types';
 import { QUEUE_CONFIG } from '@/config/queue';
-import { TOPIC_SCORE_MAP } from '@/config/topics';
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 function getTodayIST(): string {
@@ -40,8 +39,13 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 // ── queue generation ──────────────────────────────────────────────────────────
-async function generateQueue(date: string): Promise<ProblemWithStatus[]> {
-  const { data: problems, error } = await supabaseAdmin
+async function generateQueue(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  date: string
+): Promise<ProblemWithStatus[]> {
+  // problems_with_status view uses auth.uid() via RLS — returns per-user status
+  const { data: problems, error } = await supabase
     .from('problems_with_status')
     .select('*')
     .eq('paid_only', false)
@@ -56,25 +60,20 @@ async function generateQueue(date: string): Promise<ProblemWithStatus[]> {
 
   let selected: ProblemWithStatus[] = [];
 
-  // Pick hard
   const hardPicked = weightedSample(hard, QUEUE_CONFIG.hardCount);
   selected.push(...hardPicked);
 
-  // Pick medium (fallback to easy if medium exhausted)
-  let mediumNeeded = QUEUE_CONFIG.mediumCount;
-  const mediumPicked = weightedSample(medium, mediumNeeded);
+  const mediumPicked = weightedSample(medium, QUEUE_CONFIG.mediumCount);
   selected.push(...mediumPicked);
-  if (mediumPicked.length < mediumNeeded) {
-    selected.push(...weightedSample(easy, mediumNeeded - mediumPicked.length));
+  if (mediumPicked.length < QUEUE_CONFIG.mediumCount) {
+    selected.push(...weightedSample(easy, QUEUE_CONFIG.mediumCount - mediumPicked.length));
   }
 
-  // Pick easy if configured
   if (QUEUE_CONFIG.easyCount > 0) {
     const remaining = easy.filter(p => !selected.find(s => s.id === p.id));
     selected.push(...weightedSample(remaining, QUEUE_CONFIG.easyCount));
   }
 
-  // Hard fallback: if still not enough, pick from any
   if (selected.length < QUEUE_CONFIG.dailyCount) {
     const usedIds = new Set(selected.map(p => p.id));
     const remaining = pool.filter(p => !usedIds.has(p.id));
@@ -83,11 +82,11 @@ async function generateQueue(date: string): Promise<ProblemWithStatus[]> {
 
   selected = shuffle(selected);
 
-  // Save to daily_queues
-  await supabaseAdmin.from('daily_queues').upsert({
+  await supabase.from('daily_queues').upsert({
     date,
+    user_id: userId,
     problem_ids: selected.map(p => p.id),
-  }, { onConflict: 'date' });
+  }, { onConflict: 'date,user_id' });
 
   return selected;
 }
@@ -95,28 +94,31 @@ async function generateQueue(date: string): Promise<ProblemWithStatus[]> {
 // ── GET /api/queue ─────────────────────────────────────────────────────────────
 export async function GET() {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const today = getTodayIST();
 
-    // Check if queue exists for today
-    const { data: existing } = await supabaseAdmin
+    const { data: existing } = await supabase
       .from('daily_queues')
       .select('problem_ids')
       .eq('date', today)
+      .eq('user_id', user.id)
       .single();
 
     let problems: ProblemWithStatus[];
 
     if (existing?.problem_ids?.length) {
-      const { data, error } = await supabaseAdmin
+      const { data, error } = await supabase
         .from('problems_with_status')
         .select('*')
         .in('id', existing.problem_ids);
       if (error) throw error;
-      // Preserve order from problem_ids
       const map = new Map((data as ProblemWithStatus[]).map(p => [p.id, p]));
       problems = existing.problem_ids.map((id: number) => map.get(id)!).filter(Boolean);
     } else {
-      problems = await generateQueue(today);
+      problems = await generateQueue(supabase, user.id, today);
     }
 
     return NextResponse.json({ date: today, problems });
@@ -129,13 +131,18 @@ export async function GET() {
 // ── POST /api/queue — force regenerate ────────────────────────────────────────
 export async function POST(req: Request) {
   try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const body = await req.json().catch(() => ({}));
     const date = body.date ?? getTodayIST();
 
-    // Delete existing queue for this date
-    await supabaseAdmin.from('daily_queues').delete().eq('date', date);
+    await supabase.from('daily_queues').delete()
+      .eq('date', date)
+      .eq('user_id', user.id);
 
-    const problems = await generateQueue(date);
+    const problems = await generateQueue(supabase, user.id, date);
     return NextResponse.json({ date, problems, regenerated: true });
   } catch (err: unknown) {
     console.error('[POST /api/queue]', err);
