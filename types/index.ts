@@ -16,6 +16,10 @@ export interface Problem {
 export interface ProblemWithStatus extends Problem {
   status: Status;
   status_updated_at: string | null;
+  // Timing fields — populated once Phase 2 DB migration runs (null until then)
+  attempt_started_at: string | null;
+  solve_duration_secs: number | null;
+  first_attempted_at: string | null;
 }
 
 export interface DailyQueue {

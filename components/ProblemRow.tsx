@@ -1,10 +1,12 @@
 'use client';
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ProblemWithStatus, Status } from '@/types';
 import DifficultyBadge from './DifficultyBadge';
 import StatusBadge from './StatusBadge';
 import TopicTags from './TopicTags';
+import Toast from './Toast';
 
 interface Props {
   problem: ProblemWithStatus;
@@ -18,7 +20,9 @@ const STATUS_CYCLE: Array<{ status: Status; label: string }> = [
 ];
 
 export default function ProblemRow({ problem, onStatusChange }: Props) {
-  const [status, setStatus] = useState<Status>(problem.status ?? 'TO_DO');
+  const [status, setStatus]         = useState<Status>(problem.status ?? 'TO_DO');
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastMsg, setToastMsg]     = useState('');
 
   const handleStatus = async (newStatus: Status) => {
     setStatus(newStatus);
@@ -28,9 +32,25 @@ export default function ProblemRow({ problem, onStatusChange }: Props) {
       body: JSON.stringify({ problem_id: problem.id, status: newStatus }),
     });
     onStatusChange?.(problem.id, newStatus);
+    const labels: Record<Status, string> = {
+      TO_DO: 'Reset to To-Do',
+      ATTEMPTING: '🔄 Marked as Attempting',
+      SOLVED: '✅ Marked as Solved!',
+    };
+    setToastMsg(labels[newStatus]);
+    setToastVisible(true);
   };
 
   return (
+    <>
+      {typeof window !== 'undefined' && createPortal(
+        <Toast
+          message={toastMsg}
+          visible={toastVisible}
+          onDismiss={() => setToastVisible(false)}
+        />,
+        document.body
+      )}
     <tr
       style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.1s' }}
       onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg-elevated)')}
@@ -94,5 +114,6 @@ export default function ProblemRow({ problem, onStatusChange }: Props) {
         </div>
       </td>
     </tr>
+    </>
   );
 }
