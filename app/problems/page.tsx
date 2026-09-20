@@ -1,25 +1,65 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import type { ProblemWithStatus, Status, Difficulty } from '@/types';
+import type { ProblemWithStatus, Status } from '@/types';
 import ProblemRow from '@/components/ProblemRow';
 import { OLT_TOPICS } from '@/config/topics';
 
 const PAGE_SIZE = 50;
 
-const STATUS_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '',           label: 'All Statuses' },
-  { value: 'TO_DO',     label: 'To-Do'         },
-  { value: 'ATTEMPTING',label: 'Attempting'    },
-  { value: 'SOLVED',    label: 'Solved'        },
+const STATUS_OPTIONS = [
+  { value: '',            label: 'All Statuses' },
+  { value: 'TO_DO',      label: 'To-Do'         },
+  { value: 'ATTEMPTING', label: 'Attempting'    },
+  { value: 'SOLVED',     label: 'Solved'        },
 ];
 
-const DIFF_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: '',      label: 'All Difficulties' },
-  { value: 'EASY',  label: 'Easy'             },
-  { value: 'MEDIUM',label: 'Medium'           },
-  { value: 'HARD',  label: 'Hard'             },
+const DIFF_OPTIONS = [
+  { value: '',       label: 'All Difficulties' },
+  { value: 'EASY',   label: 'Easy'             },
+  { value: 'MEDIUM', label: 'Medium'           },
+  { value: 'HARD',   label: 'Hard'             },
 ];
+
+type SortField = 'id' | 'difficulty' | 'olt_score' | 'status' | 'first_attempted_at';
+type SortDir   = 'asc' | 'desc';
+
+const DIFF_ORDER = { EASY: 0, MEDIUM: 1, HARD: 2 };
+const STATUS_ORDER = { TO_DO: 0, ATTEMPTING: 1, SOLVED: 2 };
+
+function sortProblems(list: ProblemWithStatus[], field: SortField, dir: SortDir): ProblemWithStatus[] {
+  return [...list].sort((a, b) => {
+    let cmp = 0;
+    if (field === 'id')       cmp = a.id - b.id;
+    if (field === 'difficulty') {
+      cmp = (DIFF_ORDER[a.difficulty as keyof typeof DIFF_ORDER] ?? 0)
+          - (DIFF_ORDER[b.difficulty as keyof typeof DIFF_ORDER] ?? 0);
+    }
+    if (field === 'olt_score')  cmp = (a.olt_score ?? 0) - (b.olt_score ?? 0);
+    if (field === 'status') {
+      cmp = (STATUS_ORDER[a.status as keyof typeof STATUS_ORDER] ?? 0)
+          - (STATUS_ORDER[b.status as keyof typeof STATUS_ORDER] ?? 0);
+    }
+    if (field === 'first_attempted_at') {
+      const da = a.first_attempted_at ? new Date(a.first_attempted_at).getTime() : 0;
+      const db = b.first_attempted_at ? new Date(b.first_attempted_at).getTime() : 0;
+      cmp = da - db;
+    }
+    return dir === 'asc' ? cmp : -cmp;
+  });
+}
+
+function relativeTime(isoStr: string | null | undefined): string {
+  if (!isoStr) return '—';
+  const diff = Date.now() - new Date(isoStr).getTime();
+  const days  = Math.floor(diff / 86_400_000);
+  const hours = Math.floor(diff / 3_600_000);
+  const mins  = Math.floor(diff / 60_000);
+  if (days  > 0)  return `${days}d ago`;
+  if (hours > 0)  return `${hours}h ago`;
+  if (mins  > 0)  return `${mins}m ago`;
+  return 'just now';
+}
 
 export default function ProblemsPage() {
   const [all, setAll]           = useState<ProblemWithStatus[]>([]);
@@ -32,7 +72,9 @@ export default function ProblemsPage() {
   const [diff, setDiff]         = useState('');
   const [topic, setTopic]       = useState('');
 
-  // Fetch all problems
+  const [sortField, setSortField] = useState<SortField>('id');
+  const [sortDir,   setSortDir]   = useState<SortDir>('asc');
+
   useEffect(() => {
     (async () => {
       const { createBrowserClient } = await import('@supabase/ssr');
@@ -46,7 +88,6 @@ export default function ProblemsPage() {
     })();
   }, []);
 
-  // Filter
   const applyFilters = useCallback(() => {
     let list = all;
     if (search) {
@@ -56,9 +97,10 @@ export default function ProblemsPage() {
     if (status) list = list.filter(p => p.status === status);
     if (diff)   list = list.filter(p => p.difficulty === diff);
     if (topic)  list = list.filter(p => p.topic_tags?.includes(topic));
+    list = sortProblems(list, sortField, sortDir);
     setFiltered(list);
     setPage(1);
-  }, [all, search, status, diff, topic]);
+  }, [all, search, status, diff, topic, sortField, sortDir]);
 
   useEffect(() => { applyFilters(); }, [applyFilters]);
 
@@ -66,7 +108,16 @@ export default function ProblemsPage() {
     setAll(prev => prev.map(p => p.id === id ? { ...p, status: newStatus } : p));
   };
 
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDir('asc');
+    }
+  };
+
+  const paginated  = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
 
   const selectStyle = {
@@ -80,6 +131,26 @@ export default function ProblemsPage() {
     outline: 'none',
   };
 
+  const thBtn = (field: SortField, label: string, align?: string) => (
+    <th>
+      <button
+        onClick={() => toggleSort(field)}
+        style={{
+          background: 'none', border: 'none', cursor: 'pointer',
+          color: sortField === field ? 'var(--text-primary)' : 'var(--text-secondary)',
+          fontSize: '12px', fontWeight: 600, padding: 0,
+          display: 'flex', alignItems: 'center', gap: '4px',
+          textAlign: (align as 'left' | 'center') ?? 'left',
+        }}
+      >
+        {label}
+        <span style={{ fontSize: '10px', opacity: 0.7 }}>
+          {sortField === field ? (sortDir === 'asc' ? '↑' : '↓') : '↕'}
+        </span>
+      </button>
+    </th>
+  );
+
   return (
     <div className="page-container" style={{ maxWidth: '1100px' }}>
       <div style={{ marginBottom: '24px' }}>
@@ -92,20 +163,13 @@ export default function ProblemsPage() {
       </div>
 
       {/* Filter bar */}
-      <div style={{
-        display: 'flex', gap: '10px', flexWrap: 'wrap',
-        marginBottom: '20px', alignItems: 'center',
-      }}>
+      <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '20px', alignItems: 'center' }}>
         <input
           type="text"
           placeholder="Search by title or ID..."
           value={search}
           onChange={e => setSearch(e.target.value)}
-          style={{
-            ...selectStyle,
-            flexGrow: 1, minWidth: '200px',
-            background: 'var(--bg-elevated)',
-          }}
+          style={{ ...selectStyle, flexGrow: 1, minWidth: '200px' }}
         />
         <select value={status} onChange={e => setStatus(e.target.value)} style={selectStyle}>
           {STATUS_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
@@ -120,12 +184,7 @@ export default function ProblemsPage() {
       </div>
 
       {/* Table */}
-      <div style={{
-        background: 'var(--bg-card)',
-        border: '1px solid var(--border)',
-        borderRadius: '12px',
-        overflow: 'hidden',
-      }}>
+      <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', overflow: 'hidden' }}>
         {loading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: '80px' }}>
             <div className="spinner" />
@@ -134,21 +193,31 @@ export default function ProblemsPage() {
           <table>
             <thead>
               <tr>
-                <th>#</th>
-                <th>Title</th>
-                <th>Difficulty</th>
-                <th style={{ textAlign: 'center' }}>OLT Score</th>
-                <th>Status</th>
-                <th>Actions</th>
+                {thBtn('id', '#')}
+                <th><span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Title</span></th>
+                {thBtn('difficulty', 'Difficulty')}
+                {thBtn('olt_score', 'OLT Score')}
+                {thBtn('status', 'Status')}
+                {thBtn('first_attempted_at', 'Last Attempted')}
+                <th><span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)' }}>Actions</span></th>
               </tr>
             </thead>
             <tbody>
               {paginated.map(p => (
-                <ProblemRow key={p.id} problem={p} onStatusChange={handleStatusChange} />
+                <ProblemRow
+                  key={p.id}
+                  problem={p}
+                  onStatusChange={handleStatusChange}
+                  extraCell={
+                    <td style={{ padding: '12px 16px', color: 'var(--text-muted)', fontSize: '12px', whiteSpace: 'nowrap' }}>
+                      {relativeTime(p.first_attempted_at)}
+                    </td>
+                  }
+                />
               ))}
               {paginated.length === 0 && (
                 <tr>
-                  <td colSpan={6} style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
+                  <td colSpan={7} style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
                     No problems match your filters.
                   </td>
                 </tr>

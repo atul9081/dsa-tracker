@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
+import React from 'react';
 import type { ProblemWithStatus, Status } from '@/types';
 import DifficultyBadge from './DifficultyBadge';
 import StatusBadge from './StatusBadge';
@@ -11,6 +12,7 @@ import Toast from './Toast';
 interface Props {
   problem: ProblemWithStatus;
   onStatusChange?: (id: number, status: Status) => void;
+  extraCell?: React.ReactNode;   // optional extra <td> to inject (e.g. Last Attempted)
 }
 
 const STATUS_CYCLE: Array<{ status: Status; label: string }> = [
@@ -19,7 +21,7 @@ const STATUS_CYCLE: Array<{ status: Status; label: string }> = [
   { status: 'SOLVED',    label: '✅ Solved'     },
 ];
 
-export default function ProblemRow({ problem, onStatusChange }: Props) {
+export default function ProblemRow({ problem, onStatusChange, extraCell }: Props) {
   const [status, setStatus]         = useState<Status>(problem.status ?? 'TO_DO');
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMsg, setToastMsg]     = useState('');
@@ -113,6 +115,7 @@ export default function ProblemRow({ problem, onStatusChange }: Props) {
           </a>
         </div>
       </td>
+      {extraCell}
     </tr>
     </>
   );

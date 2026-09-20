@@ -116,3 +116,11 @@ thead th {
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
+
+/* ── Mobile nav ─────────────────────────────────────────────────────────────── */
+@media (max-width: 640px) {
+  .nav-links-desktop { display: none !important; }
+  .nav-user-desktop  { display: none !important; }
+  .nav-hamburger     { display: flex !important; }
+}
+

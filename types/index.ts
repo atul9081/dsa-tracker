@@ -32,3 +32,14 @@ export interface UserProgress {
   status: Status;
   updated_at: string;
 }
+
+export interface UserSettings {
+  daily_count: number;
+  hard_count: number;
+  medium_count: number;
+  easy_count: number;
+  difficulty_mode: 'chill' | 'standard' | 'grind' | 'custom';
+  enabled_topic_slugs: string[] | null;  // null = all topics
+  topic_weight_overrides: Record<string, number>;
+}
+
