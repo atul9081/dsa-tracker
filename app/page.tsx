@@ -12,6 +12,8 @@ const DIFF_MODES: Array<{ key: DiffMode; label: string; desc: string }> = [
   { key: 'grind',    label: '🔥 Grind',    desc: '3 Hard + 2 Medium'  },
 ];
 
+interface StreakData { streak: number; lastSolvedDate: string | null; }
+
 export default function DailyQueuePage() {
   const [problems, setProblems]   = useState<ProblemWithStatus[]>([]);
   const [date, setDate]           = useState('');
@@ -19,6 +21,7 @@ export default function DailyQueuePage() {
   const [regen, setRegen]         = useState(false);
   const [confirm, setConfirm]     = useState(false);
   const [diffMode, setDiffMode]   = useState<DiffMode>('standard');
+  const [streakData, setStreakData] = useState<StreakData>({ streak: 0, lastSolvedDate: null });
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -53,6 +56,14 @@ export default function DailyQueuePage() {
   };
 
   useEffect(() => { loadQueue(); }, [loadQueue]);
+
+  // Fetch streak separately so it doesn't block queue render
+  useEffect(() => {
+    fetch('/api/streak')
+      .then(r => r.json())
+      .then(d => setStreakData(d))
+      .catch(() => {});
+  }, []);
 
   const handleStatusChange = (id: number, status: Status) => {
     setProblems(prev =>
@@ -94,9 +105,30 @@ export default function DailyQueuePage() {
     <div className="page-container">
       {/* Header */}
       <div style={{ marginBottom: '28px' }}>
-        <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '6px' }}>
-          Today&apos;s Queue
-        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
+          <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)' }}>
+            Today&apos;s Queue
+          </h1>
+          {streakData.streak > 0 && (
+            <span
+              title={`${streakData.streak}-day solve streak`}
+              style={{
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--accent-amber)44',
+                borderRadius: '10px',
+                padding: '6px 14px',
+                fontSize: '14px',
+                fontWeight: 700,
+                color: 'var(--accent-amber)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+              }}
+            >
+              🔥 {streakData.streak} day{streakData.streak !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
         {dateLabel && (
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{dateLabel}</p>
         )}
