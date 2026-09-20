@@ -12,6 +12,25 @@ interface Props {
 
 const DESCRIPTION_THRESHOLD = 1200; // chars — beyond this, show "more" toggle
 
+/**
+ * Strips "Difficulty: Easy/Medium/Hard" lines from the scraped leetcode.ca HTML.
+ * The description is stored with those lines included; they must be hidden in
+ * blind mode (TO_DO / ATTEMPTING) to avoid spoiling the difficulty.
+ *
+ * Patterns handled:
+ *   <p><strong>Difficulty:</strong> Medium</p>
+ *   <p>Difficulty: Hard</p>
+ *   plain-text variants that slip through as a <p> or inline
+ */
+function sanitizeDescription(html: string): string {
+  return html
+    // Remove any tag pair that contains only a Difficulty label
+    .replace(/<[^>]+>\s*<strong>\s*Difficulty\s*:\s*<\/strong>[^<]*<\/[^>]+>/gi, '')
+    .replace(/<[^>]+>\s*Difficulty\s*:\s*(Easy|Medium|Hard)\s*<\/[^>]+>/gi, '')
+    // Catch bare "Difficulty: Medium" text nodes sitting between tags
+    .replace(/Difficulty\s*:\s*(Easy|Medium|Hard)/gi, '');
+}
+
 export default function ProblemCard({ problem, onStatusChange }: Props) {
   const [status, setStatus]           = useState<Status>(problem.status ?? 'TO_DO');
   const [loading, setLoading]         = useState<Status | null>(null);
@@ -183,7 +202,8 @@ export default function ProblemCard({ problem, onStatusChange }: Props) {
   // ── TO_DO state (default) ──────────────────────────────────────────────────
   const descHtml = problem.description ?? '';
   const showToggle = isLong;
-  const displayedDesc = descHtml; // Always full, but clipped via CSS
+  // Strip "Difficulty: ..." lines — they leak from the scraped leetcode.ca HTML
+  const displayedDesc = sanitizeDescription(descHtml);
 
   return (
     <div className="problem-card" style={{
