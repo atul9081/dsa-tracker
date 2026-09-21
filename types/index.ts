@@ -1,5 +1,6 @@
 export type Difficulty = 'EASY' | 'MEDIUM' | 'HARD';
 export type Status = 'TO_DO' | 'ATTEMPTING' | 'SOLVED';
+export type PlatformSource = 'leetcode' | 'cses';
 
 export interface Problem {
   id: number;
@@ -11,6 +12,10 @@ export interface Problem {
   ac_rate: number | null;
   paid_only: boolean;
   olt_score: number;
+  // Phase 4 fields — optional until migration runs
+  sub_type?: string | null;
+  source?: PlatformSource | null;
+  external_url?: string | null;
 }
 
 export interface ProblemWithStatus extends Problem {
@@ -41,5 +46,9 @@ export interface UserSettings {
   difficulty_mode: 'chill' | 'standard' | 'grind' | 'custom';
   enabled_topic_slugs: string[] | null;  // null = all topics
   topic_weight_overrides: Record<string, number>;
+  // Phase 4 fields — optional until migration runs
+  enabled_sources?: PlatformSource[];     // default: ['leetcode']
+  cooldown_days?: number;                 // sub-type cooldown window, default: 7
 }
+
 

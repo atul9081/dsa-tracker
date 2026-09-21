@@ -26,12 +26,18 @@ export default function ProblemRow({ problem, onStatusChange, extraCell }: Props
   const [toastVisible, setToastVisible] = useState(false);
   const [toastMsg, setToastMsg]     = useState('');
 
-  const handleStatus = async (newStatus: Status) => {
+  const handleStatus = async (newStatus: Status, opts?: { attemptStartedAt?: number }) => {
     setStatus(newStatus);
     await fetch('/api/progress', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ problem_id: problem.id, status: newStatus }),
+      body: JSON.stringify({
+        problem_id: problem.id,
+        status: newStatus,
+        attempt_started_at: opts?.attemptStartedAt
+          ? new Date(opts.attemptStartedAt).toISOString()
+          : undefined,
+      }),
     });
     onStatusChange?.(problem.id, newStatus);
     const labels: Record<Status, string> = {
@@ -41,6 +47,18 @@ export default function ProblemRow({ problem, onStatusChange, extraCell }: Props
     };
     setToastMsg(labels[newStatus]);
     setToastVisible(true);
+  };
+
+  // Clicking "↗ Solve" on a TO_DO problem starts timer + sets ATTEMPTING
+  const solveUrl = problem.external_url ?? `https://leetcode.com/problems/${problem.title_slug}/`;
+  const handleSolveLinkClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
+    if (status === 'TO_DO') {
+      e.preventDefault();
+      const now = Date.now();
+      await handleStatus('ATTEMPTING', { attemptStartedAt: now });
+      window.open(solveUrl, '_blank', 'noopener,noreferrer');
+    }
+    // ATTEMPTING/SOLVED: let href work normally
   };
 
   return (
@@ -106,12 +124,13 @@ export default function ProblemRow({ problem, onStatusChange, extraCell }: Props
             </button>
           ))}
           <a
-            href={`https://leetcode.com/problems/${problem.title_slug}/`}
+            href={solveUrl}
             target="_blank"
             rel="noopener noreferrer"
+            onClick={handleSolveLinkClick}
             style={{ color: 'var(--accent-blue)', fontSize: '12px', textDecoration: 'none', marginLeft: '4px' }}
           >
-            LC ↗
+            ↗ Solve
           </a>
         </div>
       </td>
