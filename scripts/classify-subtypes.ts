@@ -21,14 +21,31 @@
  *   GEMINI_API_KEY (required)
  *   GEMINI_API_KEY_2 (optional second key — parallel second stream)
  *
- * Run:          source .env.local && npx tsx scripts/classify-subtypes.ts
- * Run (resume): source .env.local && npx tsx scripts/classify-subtypes.ts --resume
- * Run (pass2):  source .env.local && npx tsx scripts/classify-subtypes.ts --pass2
- * Run (pass3):  source .env.local && npx tsx scripts/classify-subtypes.ts --pass3
+ * Run:          npx tsx scripts/classify-subtypes.ts
+ * Run (resume): npx tsx scripts/classify-subtypes.ts --resume
+ * Run (pass2):  npx tsx scripts/classify-subtypes.ts --pass2
+ * Run (pass3):  npx tsx scripts/classify-subtypes.ts --pass3
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+
+// ── Load .env.local automatically (no need to `source` before running) ────────
+// Parses KEY=value and export KEY=value lines, strips surrounding quotes.
+// This means `npx tsx scripts/classify-subtypes.ts` just works.
+{
+  const envFiles = ['.env.local', '.env'];
+  for (const f of envFiles) {
+    if (!fs.existsSync(f)) continue;
+    for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+      const m = line.trim().match(/^(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)$/);
+      if (!m) continue;
+      const val = m[2].replace(/^['"]|['"]$/g, ''); // strip surrounding quotes
+      if (!process.env[m[1]]) process.env[m[1]] = val; // don't overwrite shell-set vars
+    }
+    break; // use first env file found
+  }
+}
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
