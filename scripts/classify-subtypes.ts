@@ -63,7 +63,7 @@ if (API_KEYS.length === 0) {
   process.exit(1);
 }
 
-const GEMINI_MODEL = 'gemini-2.0-flash-lite';
+const GEMINI_MODEL = 'gemini-1.5-flash';
 const GEMINI_URL   = (key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${key}`;
 
