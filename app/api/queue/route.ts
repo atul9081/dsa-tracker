@@ -228,6 +228,29 @@ async function generateQueue(
     { onConflict: 'date,user_id' }
   );
 
+  // Append to queue_history (append-only; version auto-increments per day)
+  // Gracefully skip if table doesn't exist yet (before migration)
+  try {
+    const { data: versionRow } = await supabase
+      .from('queue_history')
+      .select('version')
+      .eq('user_id', userId)
+      .eq('date', date)
+      .order('version', { ascending: false })
+      .limit(1)
+      .single();
+
+    const nextVersion = (versionRow?.version ?? 0) + 1;
+    await supabase.from('queue_history').insert({
+      user_id: userId,
+      date,
+      problem_ids: selected.map(p => p.id),
+      version: nextVersion,
+    });
+  } catch {
+    // queue_history table not yet created — silently skip
+  }
+
   return selected;
 }
 
@@ -293,10 +316,6 @@ export async function POST(req: Request) {
       .select('*')
       .eq('user_id', user.id)
       .single();
-
-    await supabase.from('daily_queues').delete()
-      .eq('date', date)
-      .eq('user_id', user.id);
 
     const problems = await generateQueue(
       supabase, user.id, date,

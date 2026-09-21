@@ -9,6 +9,7 @@ const NAV_LINKS = [
   { href: '/',          label: 'Daily Queue' },
   { href: '/problems',  label: 'Problems'    },
   { href: '/analytics', label: 'Analytics'   },
+  { href: '/history',   label: 'History'     },
   { href: '/settings',  label: 'Settings'    },
 ];
 
