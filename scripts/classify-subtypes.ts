@@ -84,15 +84,62 @@ const PROGRESS_PATH = path.join(process.cwd(), 'data', 'subtypes-progress.json')
 const FINAL_PATH    = path.join(process.cwd(), 'data', 'subtypes-final.json');
 const MANUAL_PATH   = path.join(process.cwd(), 'data', 'manual-review.json');
 const MERGED_PATH   = path.join(process.cwd(), 'data', 'merged.json');
+const LOG_DIR       = path.join(process.cwd(), 'data', 'classify-logs');
+const FAILED_DIR    = path.join(LOG_DIR, 'failed');
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 interface SubtypeEntry { oltTopic: string; subtype: string; source: string; }
 interface PendingProblem { id: string; title: string; oltTopic: string; tags: string[]; }
 
+interface BatchLog {
+  batchId:     string;         // e.g. "key1-p1-b007"
+  timestamp:   string;
+  key:         string;         // "key1" or "key2" (never the actual key value)
+  pass:        string;         // "pass1" | "pass2"
+  problemIds:  string[];
+  problems:    PendingProblem[];
+  rawResponse: string;         // exact Gemini text — empty string on API error
+  parsed:      Array<{ id: string; subtype: string }>;
+  appliedCount:  number;       // problems that got a valid sub-type
+  invalidCount:  number;       // Gemini returned an unrecognised sub-type
+  missingIds:    string[];     // problem IDs in batch but absent from Gemini response
+  status:      'ok' | 'partial' | 'parse-error' | 'api-error';
+  error?:      string;         // populated on api-error
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+
+/** Ensure log directories exist (called once at startup). */
+function ensureLogDirs(): void {
+  fs.mkdirSync(LOG_DIR,    { recursive: true });
+  fs.mkdirSync(FAILED_DIR, { recursive: true });
+}
+
+/**
+ * Write a batch log to disk.
+ * - Successful/partial batches → data/classify-logs/{batchId}.json
+ * - API errors / parse errors  → data/classify-logs/failed/{batchId}.json
+ *
+ * You can re-run any failed batch manually by loading the problem list from
+ * the log and re-sending it to the Gemini API.
+ */
+function writeBatchLog(log: BatchLog): void {
+  const dir  = (log.status === 'api-error' || log.status === 'parse-error') ? FAILED_DIR : LOG_DIR;
+  const file = path.join(dir, `${log.batchId}.json`);
+  fs.writeFileSync(file, JSON.stringify(log, null, 2));
+}
+
+/** Append one entry to data/classify-logs/run-manifest.jsonl (newline-delimited). */
+function appendManifest(entry: {
+  batchId: string; timestamp: string; key: string; status: string;
+  appliedCount: number; invalidCount: number; missingCount: number; problemIds: string[];
+}): void {
+  const file = path.join(LOG_DIR, 'run-manifest.jsonl');
+  fs.appendFileSync(file, JSON.stringify(entry) + '\n');
+}
 
 async function callGemini(prompt: string, key: string): Promise<string> {
   const res = await fetch(GEMINI_URL(key), {
@@ -157,52 +204,99 @@ async function processBatches(
   keyLabel: string,
   current: Record<string, SubtypeEntry>,
   strict: boolean,
-  counters: { classified: number; failed: number; done: number; total: number }
+  counters: { classified: number; failed: number; done: number; total: number },
+  passLabel: string
 ): Promise<void> {
   for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i];
-    const start = Date.now();
+    const batch   = batches[i];
+    const batchId = `${keyLabel}-${passLabel}-b${String(i + 1).padStart(4, '0')}`;
+    const ts      = new Date().toISOString();
+    const start   = Date.now();
+
+    let rawResponse = '';
+    let parsed: Array<{ id: string; subtype: string }> = [];
+    let appliedCount  = 0;
+    let invalidCount  = 0;
+    const missingIds: string[] = [];
 
     try {
-      const text    = await callGemini(buildPrompt(batch, strict), key);
-      const results = parseBatchResponse(text);
+      rawResponse = await callGemini(buildPrompt(batch, strict), key);
+      parsed      = parseBatchResponse(rawResponse);
 
-      for (const r of results) {
+      // Track which IDs came back from Gemini
+      const returnedIds = new Set(parsed.map(r => r.id));
+      for (const p of batch) {
+        if (!returnedIds.has(p.id)) missingIds.push(p.id);
+      }
+
+      for (const r of parsed) {
         if (!r.id || !r.subtype || !current[r.id]) continue;
         if (ALL_SUBTYPES.has(r.subtype)) {
           current[r.id] = { ...current[r.id], subtype: r.subtype, source: strict ? 'pass2' : 'gemini' };
           counters.classified++;
+          appliedCount++;
         } else {
-          // Try canonical normalization (e.g., "dp1d" → "1d-dp")
           const canon = [...ALL_SUBTYPES].find(st => st.replace(/-/g, '') === r.subtype.replace(/-/g, ''));
           if (canon) {
             current[r.id] = { ...current[r.id], subtype: canon, source: strict ? 'pass2' : 'gemini' };
             counters.classified++;
+            appliedCount++;
           } else {
             counters.failed++;
+            invalidCount++;
           }
         }
       }
 
+      // Determine status
+      const status: BatchLog['status'] =
+        parsed.length === 0              ? 'parse-error'
+        : (invalidCount + missingIds.length) > 0 ? 'partial'
+        : 'ok';
+
+      // Write batch log
+      writeBatchLog({
+        batchId, timestamp: ts, key: keyLabel, pass: passLabel,
+        problemIds: batch.map(p => p.id), problems: batch,
+        rawResponse, parsed, appliedCount, invalidCount, missingIds, status,
+      });
+      appendManifest({ batchId, timestamp: ts, key: keyLabel, status,
+        appliedCount, invalidCount, missingCount: missingIds.length,
+        problemIds: batch.map(p => p.id) });
+
       counters.done++;
       const pct = Math.round((counters.done / counters.total) * 100);
-      process.stdout.write(`\r[${keyLabel}] batch ${i+1}/${batches.length} | total ${counters.done}/${counters.total} (${pct}%) | ok:${counters.classified} fail:${counters.failed}  `);
+      const statusIcon = status === 'ok' ? '✓' : status === 'partial' ? '~' : '✗';
+      process.stdout.write(
+        `\r[${keyLabel}] ${i+1}/${batches.length} ${statusIcon} | total ${counters.done}/${counters.total} (${pct}%) | ok:${counters.classified} fail:${counters.failed}  `
+      );
 
-      // Save checkpoint every CHECKPOINT_EVERY batches (shared across streams)
       if (counters.done % CHECKPOINT_EVERY === 0) {
         fs.writeFileSync(PROGRESS_PATH, JSON.stringify(current, null, 2));
       }
 
-      // Rate limit: wait for remaining time in per-key window
       const wait = Math.max(0, PER_KEY_DELAY_MS - (Date.now() - start));
       if (wait > 0) await sleep(wait);
 
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stdout.write(`\n[${keyLabel}] ERROR batch ${i+1}: ${msg.slice(0, 100)}\n`);
+
+      // Log the API-level failure so it can be retried
+      writeBatchLog({
+        batchId, timestamp: ts, key: keyLabel, pass: passLabel,
+        problemIds: batch.map(p => p.id), problems: batch,
+        rawResponse, parsed: [], appliedCount: 0, invalidCount: 0,
+        missingIds: batch.map(p => p.id),
+        status: 'api-error', error: msg,
+      });
+      appendManifest({ batchId, timestamp: ts, key: keyLabel, status: 'api-error',
+        appliedCount: 0, invalidCount: 0, missingCount: batch.length,
+        problemIds: batch.map(p => p.id) });
+
+      process.stdout.write(`\n[${keyLabel}] ERROR batch ${i+1} (${batchId}): ${msg.slice(0, 100)}\n`);
       counters.failed++;
       counters.done++;
-      await sleep(PER_KEY_DELAY_MS * 2); // back-off
+      await sleep(PER_KEY_DELAY_MS * 2);
     }
   }
 }
@@ -213,6 +307,8 @@ async function main() {
   const args   = process.argv.slice(2);
   const resume = args.includes('--resume');
   const pass2  = args.includes('--pass2');
+
+  ensureLogDirs();
   const pass3  = args.includes('--pass3');
 
   if (!fs.existsSync(S1_PATH)) {
@@ -295,10 +391,13 @@ async function main() {
 
   const counters = { classified: 0, failed: 0, done: 0, total: totalBatches };
 
+  const passLabel = pass2 ? 'p2' : 'p1';
+  console.log(`Logs: ${LOG_DIR}/  (one .json per batch, failed/ for errors, run-manifest.jsonl for summary)\n`);
+
   // Run all key streams in parallel
   await Promise.all(
     chunks.map((batches, i) =>
-      processBatches(batches, API_KEYS[i], `key${i + 1}`, current, pass2, counters)
+      processBatches(batches, API_KEYS[i], `key${i + 1}`, current, pass2, counters, passLabel)
     )
   );
 
