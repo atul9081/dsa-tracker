@@ -15,6 +15,18 @@ import { createClient } from '@supabase/supabase-js';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// Auto-load .env.local (no need to `source` before running)
+for (const f of ['.env.local', '.env']) {
+  if (!fs.existsSync(f)) continue;
+  for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
+    const m = line.trim().match(/^(?:export\s+)?([A-Z_][A-Z0-9_]*)=(.*)$/);
+    if (!m) continue;
+    const val = m[2].replace(/^['"]|['"]$/g, '');
+    if (!process.env[m[1]]) process.env[m[1]] = val;
+  }
+  break;
+}
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 const DRY_RUN      = process.argv.includes('--dry-run');
