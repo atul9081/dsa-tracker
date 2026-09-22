@@ -97,7 +97,7 @@ async function main() {
     .map(p => ({
       id:           -(p.cses_id!),           // negative = CSES namespace
       title:        p.title,
-      title_slug:   p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+      title_slug:   'cses-' + p.title.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
       difficulty:   p.difficulty,
       topic_tags:   p.topic_tags,
       description:  null,                    // CSES has no cached description
