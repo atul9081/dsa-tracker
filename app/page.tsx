@@ -22,6 +22,7 @@ export default function DailyQueuePage() {
   const [confirm, setConfirm]     = useState(false);
   const [diffMode, setDiffMode]   = useState<DiffMode>('standard');
   const [streakData, setStreakData] = useState<StreakData>({ streak: 0, lastSolvedDate: null });
+  const [exhausted, setExhausted] = useState(false);
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -30,6 +31,7 @@ export default function DailyQueuePage() {
       const data = await res.json();
       setProblems(data.problems ?? []);
       setDate(data.date ?? '');
+      setExhausted(data.exhausted ?? false);
     } catch (e) {
       console.error(e);
     } finally {
@@ -48,6 +50,7 @@ export default function DailyQueuePage() {
       });
       const data = await res.json();
       setProblems(data.problems ?? []);
+      setExhausted(data.exhausted ?? false);
     } catch (e) {
       console.error(e);
     } finally {
@@ -191,12 +194,30 @@ export default function DailyQueuePage() {
               onSkip={handleSkip}
             />
           ))}
-          {problems.length === 0 && (
+          {problems.length === 0 && !exhausted && (
             <div style={{
               textAlign: 'center', padding: '80px 0',
               color: 'var(--text-muted)', fontSize: '15px',
             }}>
               No problems in queue. Database may still be seeding.
+            </div>
+          )}
+          {exhausted && (
+            <div className="fade-in" style={{
+              background: 'var(--bg-card)',
+              border: '1px solid var(--accent-blue)44',
+              borderRadius: '14px',
+              padding: '28px',
+              textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '36px', marginBottom: '10px' }}>🏆</div>
+              <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--accent-blue)', marginBottom: '8px' }}>
+                You&apos;ve completed enough problems!
+              </h2>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.6 }}>
+                No more unsolved problems in your enabled topics — amazing work.
+                Try enabling more topics in <a href="/settings" style={{ color: 'var(--accent-blue)' }}>Settings</a> to continue.
+              </p>
             </div>
           )}
         </div>
