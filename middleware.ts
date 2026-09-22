@@ -50,9 +50,11 @@ export async function middleware(request: NextRequest) {
       .eq('user_id', user.id)
       .single();
 
-    // If the table doesn't exist yet (before migration), or user has access → pass through
-    // If row exists and granted=false → redirect to waiting
-    if (access !== null && access.granted === false) {
+    // No row = brand-new user (trigger may not have committed yet) → treat as not granted.
+    // Row with granted=false → not yet approved.
+    // Only pass through if row exists AND granted=true.
+    const isGranted = access?.granted === true;
+    if (!isGranted) {
       const waitingUrl = request.nextUrl.clone();
       waitingUrl.pathname = '/waiting';
       return NextResponse.redirect(waitingUrl);

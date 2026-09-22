@@ -8,8 +8,18 @@ export async function GET(request: Request) {
 
   if (code) {
     const supabase = await createClient();
-    const { error } = await supabase.auth.exchangeCodeForSession(code);
-    if (!error) {
+    const { data, error } = await supabase.auth.exchangeCodeForSession(code);
+    if (!error && data.user) {
+      // Safety net: ensure user_access row exists (trigger may not have fired yet
+      // or may be delayed). ON CONFLICT DO NOTHING preserves granted=true for
+      // existing whitelisted users.
+      await supabase
+        .from('user_access')
+        .upsert(
+          { user_id: data.user.id, granted: false },
+          { onConflict: 'user_id', ignoreDuplicates: true }
+        );
+
       return NextResponse.redirect(`${origin}${next}`);
     }
   }

@@ -310,7 +310,8 @@ async function generateQueue(
   if (useLc && useCses && csesPool.length > 0 && lcPool.length > 0) {
     const lcCount   = lcPool.length;
     const csesCount = csesPool.length;
-    csesSlots = Math.round(cfg.dailyCount * csesCount / (lcCount + csesCount));
+    // Guarantee at least 1 CSES slot even when proportional share rounds to 0
+    csesSlots = Math.max(1, Math.round(cfg.dailyCount * csesCount / (lcCount + csesCount)));
     lcSlots   = cfg.dailyCount - csesSlots;
   } else if (!useLc && useCses) {
     lcSlots   = 0;
