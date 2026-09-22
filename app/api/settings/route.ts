@@ -10,6 +10,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   difficulty_mode: 'standard',
   enabled_topic_slugs: null,
   topic_weight_overrides: {},
+  enabled_sources: ['leetcode'],
+  cooldown_days: 7,
 };
 
 export async function GET() {
@@ -37,6 +39,8 @@ export async function GET() {
       difficulty_mode: data.difficulty_mode ?? DEFAULT_SETTINGS.difficulty_mode,
       enabled_topic_slugs: data.enabled_topic_slugs ?? null,
       topic_weight_overrides: data.topic_weight_overrides ?? {},
+      enabled_sources: data.enabled_sources ?? DEFAULT_SETTINGS.enabled_sources,
+      cooldown_days: data.cooldown_days ?? DEFAULT_SETTINGS.cooldown_days,
     };
 
     return NextResponse.json({ settings });
@@ -57,13 +61,15 @@ export async function POST(req: Request) {
 
     // Validate and sanitize
     const settings: Partial<UserSettings> = {};
-    if (body.daily_count !== undefined)           settings.daily_count = Math.max(1, Math.min(20, Number(body.daily_count)));
-    if (body.hard_count !== undefined)            settings.hard_count = Math.max(0, Number(body.hard_count));
-    if (body.medium_count !== undefined)          settings.medium_count = Math.max(0, Number(body.medium_count));
-    if (body.easy_count !== undefined)            settings.easy_count = Math.max(0, Number(body.easy_count));
-    if (body.difficulty_mode !== undefined)       settings.difficulty_mode = body.difficulty_mode;
-    if ('enabled_topic_slugs' in body)            settings.enabled_topic_slugs = body.enabled_topic_slugs; // allow null
+    if (body.daily_count !== undefined)            settings.daily_count = Math.max(1, Math.min(20, Number(body.daily_count)));
+    if (body.hard_count !== undefined)             settings.hard_count = Math.max(0, Number(body.hard_count));
+    if (body.medium_count !== undefined)           settings.medium_count = Math.max(0, Number(body.medium_count));
+    if (body.easy_count !== undefined)             settings.easy_count = Math.max(0, Number(body.easy_count));
+    if (body.difficulty_mode !== undefined)        settings.difficulty_mode = body.difficulty_mode;
+    if ('enabled_topic_slugs' in body)             settings.enabled_topic_slugs = body.enabled_topic_slugs;
     if (body.topic_weight_overrides !== undefined) settings.topic_weight_overrides = body.topic_weight_overrides;
+    if (body.enabled_sources !== undefined)        settings.enabled_sources = body.enabled_sources;
+    if (body.cooldown_days !== undefined)          settings.cooldown_days = Math.max(1, Math.min(21, Number(body.cooldown_days)));
 
     const { error } = await supabase
       .from('user_settings')

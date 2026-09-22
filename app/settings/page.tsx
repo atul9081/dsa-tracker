@@ -24,6 +24,8 @@ const DEFAULT_SETTINGS: UserSettings = {
   difficulty_mode: 'standard',
   enabled_topic_slugs: null,
   topic_weight_overrides: {},
+  enabled_sources: ['leetcode'],
+  cooldown_days: 7,
 };
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
@@ -243,6 +245,84 @@ export default function SettingsPage() {
               </div>
             </div>
           )}
+        </div>
+      </section>
+
+      {/* ── Platform Sources ─────────────────────────────────────── */}
+      <section style={sectionStyle} className="fade-in">
+        <SectionHeader
+          title="Problem Sources"
+          subtitle="Choose which problem sets are included in your daily queue."
+        />
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+          {([['leetcode', '🟡 LeetCode', 'Free, curated LC problems mapped to OLT topics'],
+             ['cses',     '🟢 CSES',     'Priority A+B problems from CSES Problem Set (161 problems)']] as const).map(
+            ([src, label, desc]) => {
+              const enabled = (settings.enabled_sources ?? ['leetcode']).includes(src);
+              return (
+                <label
+                  key={src}
+                  style={{
+                    display: 'flex', alignItems: 'flex-start', gap: '12px',
+                    padding: '12px 14px', borderRadius: '10px', cursor: 'pointer',
+                    background: enabled ? 'var(--bg-elevated)' : 'transparent',
+                    border: `1px solid ${enabled ? 'var(--border)' : 'transparent'}`,
+                    transition: 'all 0.12s',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={enabled}
+                    onChange={() => {
+                      const current = settings.enabled_sources ?? ['leetcode'];
+                      const next = enabled
+                        ? current.filter(s => s !== src)
+                        : [...current, src];
+                      // Always keep at least one source
+                      if (next.length === 0) return;
+                      setSettings(s => ({ ...s, enabled_sources: next as ('leetcode' | 'cses')[] }));
+                    }}
+                    style={{ width: '15px', height: '15px', marginTop: '2px', cursor: 'pointer', accentColor: 'var(--accent-blue)' }}
+                  />
+                  <div>
+                    <div style={{ fontSize: '14px', fontWeight: 600, color: enabled ? 'var(--text-primary)' : 'var(--text-muted)' }}>{label}</div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>{desc}</div>
+                  </div>
+                </label>
+              );
+            }
+          )}
+        </div>
+      </section>
+
+      {/* ── Sub-type Cooldown ─────────────────────────────────────── */}
+      <section style={sectionStyle} className="fade-in">
+        <SectionHeader
+          title="Sub-type Cooldown"
+          subtitle="How many days before a recently-solved sub-type reappears at full priority. Lower = more repetition, higher = more variety."
+        />
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+          <input
+            type="range"
+            min={1}
+            max={21}
+            step={1}
+            value={settings.cooldown_days ?? 7}
+            onChange={e => setSettings(s => ({ ...s, cooldown_days: Number(e.target.value) }))}
+            style={{ flex: 1, minWidth: '160px', accentColor: 'var(--accent-blue)' }}
+          />
+          <span style={{
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+            borderRadius: '8px', padding: '6px 14px',
+            fontSize: '14px', fontWeight: 700, color: 'var(--accent-blue)',
+            minWidth: '80px', textAlign: 'center',
+          }}>
+            {settings.cooldown_days ?? 7} days
+          </span>
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px' }}>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>1 — more repetition</span>
+          <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>21 — more variety</span>
         </div>
       </section>
 
