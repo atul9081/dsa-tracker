@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Navbar from '@/components/Navbar';
 import DifficultyBadge from '@/components/DifficultyBadge';
 import StatusBadge from '@/components/StatusBadge';
 import type { Difficulty, Status } from '@/types';
@@ -70,7 +69,6 @@ export default function HistoryPage() {
 
   return (
     <>
-      <Navbar />
       <main style={{ maxWidth: '760px', margin: '0 auto', padding: '32px 20px' }}>
         {/* Page header */}
         <div style={{ marginBottom: '28px' }}>
