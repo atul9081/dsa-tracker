@@ -32,11 +32,20 @@ const DELAY_MS = 400;     // ms between requests (be polite to both APIs)
 const BATCH_SIZE = 50;    // DB update batch size
 const MAX_ERRORS = 20;    // abort if too many consecutive errors
 
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
+const SERVICE_KEY  = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+if (!SUPABASE_URL || !SERVICE_KEY) {
+  console.error('\n❌ Missing required env vars:');
+  if (!SUPABASE_URL) console.error('   NEXT_PUBLIC_SUPABASE_URL is not set');
+  if (!SERVICE_KEY)  console.error('   SUPABASE_SERVICE_ROLE_KEY is not set');
+  console.error('\nFix: make sure .env.local exists and contains both vars.');
+  console.error('Run: cat .env.local | grep -E "SUPABASE|SERVICE_ROLE" to check.');
+  process.exit(1);
+}
+
 // ── supabase ──────────────────────────────────────────────────────────────────
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabase = createClient(SUPABASE_URL, SERVICE_KEY);
 
 function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
@@ -165,8 +174,11 @@ async function main() {
         .from('problems')
         .update({ description })
         .eq('id', id);
-      if (error) console.error(`  ⚠ DB update failed for id=${id}:`, error.message);
-      else updated++;
+      if (error) {
+        console.error(`\n  ⚠ DB update FAILED for id=${id}: ${error.message} (code: ${error.code})`);
+      } else {
+        updated++;
+      }
     }
   }
 
@@ -220,10 +232,23 @@ async function main() {
       consecutiveErrors = 0;
       process.stdout.write('✅');
     } else {
-      failed++;
-      consecutiveErrors++;
-      logStream.write(JSON.stringify({ source: 'cses', id: p.id, csesId }) + '\n');
-      process.stdout.write('❌');
+      // Retry with exponential backoff (cses.fi may rate-limit)
+      let retryDesc: string | null = null;
+      for (const backoff of [1000, 2000, 4000]) {
+        await sleep(backoff);
+        retryDesc = await fetchCSESDescription(csesId);
+        if (retryDesc) break;
+      }
+      if (retryDesc) {
+        updates.push({ id: p.id, description: retryDesc });
+        consecutiveErrors = 0;
+        process.stdout.write('✅(retry)');
+      } else {
+        failed++;
+        consecutiveErrors++;
+        logStream.write(JSON.stringify({ source: 'cses', id: p.id, csesId }) + '\n');
+        process.stdout.write('❌');
+      }
     }
 
     if (updates.length >= BATCH_SIZE) await flushUpdates();
