@@ -26,6 +26,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   topic_weight_overrides: {},
   enabled_sources: ['leetcode'],
   cooldown_days: 7,
+  cses_ratio: null,
 };
 
 function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
@@ -293,6 +294,61 @@ export default function SettingsPage() {
             }
           )}
         </div>
+
+        {/* CSES mix ratio slider — only when both sources enabled */}
+        {(() => {
+          const sources = settings.enabled_sources ?? ['leetcode'];
+          const bothEnabled = sources.includes('leetcode') && sources.includes('cses');
+          if (!bothEnabled) return null;
+          const ratio = settings.cses_ratio ?? null;
+          const pct = ratio != null ? Math.round(ratio * 100) : null;
+          return (
+            <div style={{
+              marginTop: '14px', padding: '14px 16px',
+              background: 'var(--bg-elevated)', borderRadius: '10px',
+              border: '1px solid var(--border)',
+            }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                <div>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>CSES mix</div>
+                  <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                    {pct != null ? `${pct}% of queue from CSES` : 'Auto — proportional to pool sizes (~10%)'}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{
+                    fontSize: '13px', fontWeight: 700,
+                    color: pct != null ? 'var(--accent-blue)' : 'var(--text-muted)',
+                    minWidth: '38px', textAlign: 'right',
+                  }}>
+                    {pct != null ? `${pct}%` : 'Auto'}
+                  </span>
+                  {pct != null && (
+                    <button
+                      onClick={() => setSettings(s => ({ ...s, cses_ratio: null }))}
+                      title="Reset to auto"
+                      style={{
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--text-muted)', fontSize: '12px', padding: '2px 6px',
+                        borderRadius: '4px',
+                      }}
+                    >↺ Auto</button>
+                  )}
+                </div>
+              </div>
+              <input
+                type="range"
+                min={0} max={100} step={10}
+                value={pct ?? 10}
+                onChange={e => setSettings(s => ({ ...s, cses_ratio: Number(e.target.value) / 100 }))}
+                style={{ width: '100%', accentColor: 'var(--accent-blue)' }}
+              />
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
+                <span>0% CSES</span><span>50%</span><span>100% CSES</span>
+              </div>
+            </div>
+          );
+        })()}
       </section>
 
       {/* ── Sub-type Cooldown ─────────────────────────────────────── */}

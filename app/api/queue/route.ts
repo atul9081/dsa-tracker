@@ -62,6 +62,7 @@ interface QueueCfg {
   enabledSources: Array<'leetcode' | 'cses'>;
   weightOverrides: Record<string, number>;
   cooldownDays: number;
+  csesRatio: number | null;   // null = auto (proportional to pool sizes)
 }
 
 function resolveConfig(settings: UserSettings | null, modeOverride?: DiffMode): QueueCfg {
@@ -95,6 +96,7 @@ function resolveConfig(settings: UserSettings | null, modeOverride?: DiffMode): 
     enabledSources: settings?.enabled_sources ?? ['leetcode'],
     weightOverrides: settings?.topic_weight_overrides ?? {},
     cooldownDays:   settings?.cooldown_days ?? 7,
+    csesRatio:      settings?.cses_ratio ?? null,
   };
 }
 
@@ -317,10 +319,11 @@ async function generateQueue(
   let csesSlots = 0;
 
   if (useLc && useCses && csesPool.length > 0 && lcPool.length > 0) {
-    const lcCount   = lcPool.length;
-    const csesCount = csesPool.length;
-    // Guarantee at least 1 CSES slot even when proportional share rounds to 0
-    csesSlots = Math.max(1, Math.round(cfg.dailyCount * csesCount / (lcCount + csesCount)));
+    // Use explicit ratio if set, otherwise fall back to proportional by pool size.
+    const ratio = (cfg.csesRatio != null)
+      ? Math.min(1, Math.max(0, cfg.csesRatio))
+      : csesPool.length / (lcPool.length + csesPool.length);
+    csesSlots = Math.max(1, Math.round(cfg.dailyCount * ratio));
     lcSlots   = cfg.dailyCount - csesSlots;
   } else if (!useLc && useCses) {
     lcSlots   = 0;

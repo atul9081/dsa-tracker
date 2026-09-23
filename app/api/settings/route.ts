@@ -12,6 +12,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   topic_weight_overrides: {},
   enabled_sources: ['leetcode'],
   cooldown_days: 7,
+  cses_ratio: null,
 };
 
 export async function GET() {
@@ -41,6 +42,7 @@ export async function GET() {
       topic_weight_overrides: data.topic_weight_overrides ?? {},
       enabled_sources: data.enabled_sources ?? DEFAULT_SETTINGS.enabled_sources,
       cooldown_days: data.cooldown_days ?? DEFAULT_SETTINGS.cooldown_days,
+      cses_ratio: data.cses_ratio ?? null,
     };
 
     return NextResponse.json({ settings });
@@ -70,6 +72,7 @@ export async function POST(req: Request) {
     if (body.topic_weight_overrides !== undefined) settings.topic_weight_overrides = body.topic_weight_overrides;
     if (body.enabled_sources !== undefined)        settings.enabled_sources = body.enabled_sources;
     if (body.cooldown_days !== undefined)          settings.cooldown_days = Math.max(1, Math.min(21, Number(body.cooldown_days)));
+    if ('cses_ratio' in body)                      settings.cses_ratio = body.cses_ratio === null ? null : Math.min(1, Math.max(0, Number(body.cses_ratio)));
 
     const { error } = await supabase
       .from('user_settings')

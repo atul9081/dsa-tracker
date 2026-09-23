@@ -49,6 +49,7 @@ export interface UserSettings {
   // Phase 4 fields — optional until migration runs
   enabled_sources?: PlatformSource[];     // default: ['leetcode']
   cooldown_days?: number;                 // sub-type cooldown window, default: 7
+  cses_ratio?: number | null;             // 0.0–1.0 CSES fraction; null = auto (proportional)
 }
 
 
