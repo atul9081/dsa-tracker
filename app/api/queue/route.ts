@@ -285,18 +285,24 @@ async function generateQueue(
   // Fetch staleness map (sub-type → score) from last 30 days of SOLVED history
   const stalenessMap = await buildStalenessMap(supabase, userId, cfg.cooldownDays);
 
-  // Fetch all eligible problems (not SOLVED, not paid)
-  // NOTE: Supabase PostgREST caps at 1000 rows by default — explicit limit needed
-  // to include CSES problems (negative IDs, sorted after all LC problems).
-  const { data: problems, error } = await supabase
-    .from('problems_with_status')
-    .select('*')
-    .eq('paid_only', false)
-    .neq('status', 'SOLVED')
-    .limit(3000);
-
-  if (error) throw error;
-  const allPool = problems as ProblemWithStatus[];
+  // Fetch all eligible problems (not SOLVED, not paid).
+  // Paginate in batches of 1000 — PostgREST's server-side max-rows cap
+  // silently overrides any higher client .limit(), so a single query can
+  // never return more than 1000 rows regardless of what the client requests.
+  const allPool: ProblemWithStatus[] = [];
+  const PAGE = 1000;
+  for (let page = 0; ; page++) {
+    const { data: batch, error } = await supabase
+      .from('problems_with_status')
+      .select('*')
+      .eq('paid_only', false)
+      .neq('status', 'SOLVED')
+      .range(page * PAGE, page * PAGE + PAGE - 1);
+    if (error) throw error;
+    if (!batch || batch.length === 0) break;
+    allPool.push(...(batch as ProblemWithStatus[]));
+    if (batch.length < PAGE) break; // last page
+  }
 
   // Split by platform source
   const lcPool   = allPool.filter(p => !p.source || p.source === 'leetcode');

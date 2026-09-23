@@ -47,19 +47,25 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Problem not in today\'s queue' }, { status: 400 });
     }
 
-    // Pull unsolved problems not already in today's queue
-    // NOTE: .limit(3000) required — PostgREST default cap of 1000 excludes CSES problems (negative IDs)
-    const { data: pool, error: pErr } = await supabase
-      .from('problems_with_status')
-      .select('*')
-      .eq('paid_only', false)
-      .neq('status', 'SOLVED')
-      .not('id', 'in', `(${currentIds.join(',')})`)
-      .limit(3000);
+    // Pull unsolved problems not already in today's queue — paginated to bypass
+    // PostgREST server-side max-rows cap of 1000.
+    const pool: ProblemWithStatus[] = [];
+    const PAGE = 1000;
+    for (let page = 0; ; page++) {
+      const { data: batch, error: pErr } = await supabase
+        .from('problems_with_status')
+        .select('*')
+        .eq('paid_only', false)
+        .neq('status', 'SOLVED')
+        .not('id', 'in', `(${currentIds.join(',')})`)
+        .range(page * PAGE, page * PAGE + PAGE - 1);
+      if (pErr) throw pErr;
+      if (!batch || batch.length === 0) break;
+      pool.push(...(batch as ProblemWithStatus[]));
+      if (batch.length < PAGE) break;
+    }
 
-
-    if (pErr) throw pErr;
-    if (!pool || pool.length === 0) {
+    if (pool.length === 0) {
       return NextResponse.json({ error: 'No replacement problems available' }, { status: 409 });
     }
 
