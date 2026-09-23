@@ -319,12 +319,17 @@ async function generateQueue(
   let csesSlots = 0;
 
   if (useLc && useCses && csesPool.length > 0 && lcPool.length > 0) {
-    // Use explicit ratio if set, otherwise fall back to proportional by pool size.
-    const ratio = (cfg.csesRatio != null)
-      ? Math.min(1, Math.max(0, cfg.csesRatio))
-      : csesPool.length / (lcPool.length + csesPool.length);
-    csesSlots = Math.max(1, Math.round(cfg.dailyCount * ratio));
-    lcSlots   = cfg.dailyCount - csesSlots;
+    // Explicit ratio: respect it exactly (user set 0% → 0 CSES slots is valid).
+    // Auto (null): proportional to pool sizes, but floor at 1 so CSES is never
+    // accidentally rounded away when the pool is much smaller than LC.
+    if (cfg.csesRatio != null) {
+      const ratio = Math.min(1, Math.max(0, cfg.csesRatio));
+      csesSlots = Math.round(cfg.dailyCount * ratio);
+    } else {
+      const autoRatio = csesPool.length / (lcPool.length + csesPool.length);
+      csesSlots = Math.max(1, Math.round(cfg.dailyCount * autoRatio));
+    }
+    lcSlots = cfg.dailyCount - csesSlots;
   } else if (!useLc && useCses) {
     lcSlots   = 0;
     csesSlots = cfg.dailyCount;
