@@ -191,10 +191,13 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
   // ── KaTeX math rendering ──────────────────────────────────────────────────
   // CSES descriptions contain raw LaTeX in <span class="math math-inline">
   // and <span class="math math-display"> spans. Render them client-side.
-  const descRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!revealed || !descVisible || !descRef.current) return;
-    descRef.current.querySelectorAll<HTMLElement>('.math').forEach(el => {
+  const descRef       = useRef<HTMLDivElement>(null);
+  const solvedDescRef = useRef<HTMLDivElement>(null);
+
+  function renderMathIn(container: HTMLElement | null) {
+    if (!container) return;
+    container.querySelectorAll<HTMLElement>('.math').forEach(el => {
+      if (el.dataset.katexRendered) return; // don't re-render
       const latex = el.textContent ?? '';
       const displayMode = el.classList.contains('math-display');
       try {
@@ -203,11 +206,20 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
           throwOnError: false,
           output: 'html',
         });
+        el.dataset.katexRendered = '1';
       } catch {
-        // leave raw LaTeX as-is if parsing fails
+        // leave raw LaTeX as-is
       }
     });
+  }
+
+  useEffect(() => {
+    if (revealed && descVisible) renderMathIn(descRef.current);
   }, [revealed, descVisible]);
+
+  useEffect(() => {
+    if (solvedExpanded) renderMathIn(solvedDescRef.current);
+  }, [solvedExpanded]);
 
   // ── Shared description block ──────────────────────────────────────────────
   // Renders either the compact blurred block or the full readable description.
@@ -386,8 +398,9 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
             </button>
             {solvedExpanded && problem.description && (
               <div
+                ref={solvedDescRef}
                 className="problem-description fade-in"
-                dangerouslySetInnerHTML={{ __html: problem.description }}
+                dangerouslySetInnerHTML={{ __html: safeDesc }}
                 style={{ marginTop: '14px', color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.7 }}
               />
             )}
