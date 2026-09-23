@@ -370,7 +370,7 @@ export default function AnalyticsPage() {
     const weeklyMap = new Map<string, { total: number; count: number }>();
     for (const pr of filteredProgress) {
       if (pr.solve_duration_secs === null) continue;
-      const d = new Date(pr.updated_at + 'T00:00:00Z');
+      const d = new Date(pr.updated_at);
       // Find Monday of that week
       const day = d.getUTCDay();
       const monday = new Date(d);
