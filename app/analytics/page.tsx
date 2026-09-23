@@ -295,7 +295,7 @@ export default function AnalyticsPage() {
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       );
       const [{ data: pData }, { data: progData }, streakRes] = await Promise.all([
-        sb.from('problems_with_status').select('*'),
+        sb.from('problems_with_status').select('*').limit(3000),
         sb.from('user_progress').select('problem_id,status,updated_at,first_attempted_at,solve_duration_secs').eq('status', 'SOLVED'),
         fetch('/api/streak').then(r => r.json()).catch(() => ({ streak: 0 })),
       ]);

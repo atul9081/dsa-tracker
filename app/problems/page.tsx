@@ -82,7 +82,7 @@ export default function ProblemsPage() {
         process.env.NEXT_PUBLIC_SUPABASE_URL!,
         process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
       );
-      const { data } = await sb.from('problems_with_status').select('*').order('id');
+      const { data } = await sb.from('problems_with_status').select('*').order('id').limit(3000);
       setAll((data as ProblemWithStatus[]) ?? []);
       setLoading(false);
     })();

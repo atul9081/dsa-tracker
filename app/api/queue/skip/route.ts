@@ -48,12 +48,15 @@ export async function POST(req: Request) {
     }
 
     // Pull unsolved problems not already in today's queue
+    // NOTE: .limit(3000) required — PostgREST default cap of 1000 excludes CSES problems (negative IDs)
     const { data: pool, error: pErr } = await supabase
       .from('problems_with_status')
       .select('*')
       .eq('paid_only', false)
       .neq('status', 'SOLVED')
-      .not('id', 'in', `(${currentIds.join(',')})`);
+      .not('id', 'in', `(${currentIds.join(',')})`)
+      .limit(3000);
+
 
     if (pErr) throw pErr;
     if (!pool || pool.length === 0) {

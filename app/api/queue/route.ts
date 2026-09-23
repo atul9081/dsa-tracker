@@ -286,11 +286,14 @@ async function generateQueue(
   const stalenessMap = await buildStalenessMap(supabase, userId, cfg.cooldownDays);
 
   // Fetch all eligible problems (not SOLVED, not paid)
+  // NOTE: Supabase PostgREST caps at 1000 rows by default — explicit limit needed
+  // to include CSES problems (negative IDs, sorted after all LC problems).
   const { data: problems, error } = await supabase
     .from('problems_with_status')
     .select('*')
     .eq('paid_only', false)
-    .neq('status', 'SOLVED');
+    .neq('status', 'SOLVED')
+    .limit(3000);
 
   if (error) throw error;
   const allPool = problems as ProblemWithStatus[];
@@ -424,7 +427,8 @@ export async function GET() {
       const { data, error } = await supabase
         .from('problems_with_status')
         .select('*')
-        .in('id', existing.problem_ids);
+        .in('id', existing.problem_ids)
+        .limit(existing.problem_ids.length + 10);
       if (error) throw error;
       const map = new Map((data as ProblemWithStatus[]).map(p => [p.id, p]));
       problems = existing.problem_ids.map((id: number) => map.get(id)!).filter(Boolean);

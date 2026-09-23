@@ -49,7 +49,8 @@ export async function GET(req: Request) {
       const { data: problems } = await supabase
         .from('problems_with_status')
         .select('id, title, difficulty, status, sub_type, source')
-        .in('id', ids);
+        .in('id', ids)
+        .limit(ids.length + 10);
 
       // Preserve original queue order
       const map = new Map((problems ?? []).map((p: { id: number }) => [p.id, p]));
