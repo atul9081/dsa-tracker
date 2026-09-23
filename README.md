@@ -1,6 +1,6 @@
 # ⚡ DSA Tracker
 
-A **blind-mode** LeetCode practice tracker built for placement OLT prep. Problems hide their difficulty and topic tags until you mark them — keeping your practice honest and exam-realistic.
+A **blind-mode** DSA practice tracker built for placement OLT prep. Problems hide their statement, difficulty, and topic tags until you click Reveal — keeping practice honest and exam-realistic.
 
 **Live:** [dsa-tracker-pi-six.vercel.app](https://dsa-tracker-pi-six.vercel.app)
 
@@ -8,31 +8,75 @@ A **blind-mode** LeetCode practice tracker built for placement OLT prep. Problem
 
 ## Why
 
-On LeetCode, the difficulty label and topic tags are visible before you even read the problem. Knowing a problem is tagged "Dynamic Programming" or is "Hard" changes how you approach it — defeating the point of blind practice.
+On LeetCode, the difficulty badge and topic tags are visible before you read the problem. Knowing "Dynamic Programming · Hard" before reading a single word changes how you approach it — defeating the purpose of blind practice.
 
-This tracker hides all that. You see the problem statement. You think. You solve. Only after marking it solved do the tags and difficulty reveal.
+This tracker:
+- Shows only the problem title + timer
+- Requires you to click **Reveal** to read the description
+- Hides difficulty + topics until you mark it **Solved**
+- Generates a fresh weighted-random queue every day so you never pick your own problems
 
 ---
 
 ## Features
 
-- **🔒 Blind Mode** — difficulty and topics hidden; revealed only on Solved
-- **📅 Daily Queue** — 5 weighted-random problems/day (2 Hard + 3 Medium), stable for the day, regeneratable on demand
-- **📋 Problem List** — filterable table (status · difficulty · topic · search) across all 570 problems
-- **📊 Analytics** — stat cards, difficulty/topic progress bars, SVG donut chart
-- **🔄 Status Flow** — `To-Do` → `Attempting` → `Solved`
-  - Clicking "Open on LeetCode" auto-sets Attempting and collapses the card to title-only
-  - Solved reveals difficulty + topics in an expandable accordion
-- **👥 Multi-user** — Supabase Auth (Google OAuth + email), per-user isolated progress and queues
+### Daily Queue
+- 5 problems/day by default (configurable: 1–20)
+- **3-stage weighted sampler**: topic → sub-type → problem
+  - Topics weighted by `olt_score²` so high-value topics (DP, Graphs) appear more often
+  - Sub-types weighted by **staleness** — recently practiced sub-types are deprioritised
+  - At most 1 problem per sub-type per day
+- Stable for the day (regenerate any time via Settings)
+- Skip button replaces a problem without regenerating the whole queue
+
+### Problem Sources
+| Source   | Count | Notes                                        |
+|----------|-------|----------------------------------------------|
+| LeetCode | 1,760 | Free problems mapped to OLT topics           |
+| CSES     | 161   | Priority A+B problems from CSES Problem Set  |
+| **Total**| **1,921** |                                          |
+
+### Reveal UX
+- **First click** → description reveals + timer starts + status → Attempting
+- **Hide/Show** toggle — collapses description back (not re-blurred)
+- Descriptions fetched from LeetCode GraphQL + cses.fi and stored in DB
+- CSES math rendered client-side via **KaTeX** (no server round-trip)
+
+### Settings
+| Setting              | Description                                        |
+|----------------------|----------------------------------------------------|
+| Difficulty mode      | Chill / Standard / Grind / Custom splits           |
+| Problem Sources      | LC only, CSES only, or both                        |
+| CSES mix ratio       | 0–100% slider (Auto = proportional to pool sizes)  |
+| Sub-type cooldown    | Days before re-serving the same sub-type (1–21)   |
+| Topic filter         | Enable/disable individual OLT topics               |
+
+### Analytics
+- Stat cards (total / solved / streak)
+- Difficulty breakdown progress bars + SVG donut chart
+- Topic weakness table (solve rate · avg solve time)
+- 91-day GitHub-style heatmap
+- Weekly avg solve time bar chart
+
+### History
+- Last 30 days of daily queues
+- Per-queue: date, solved/total, "regenerated" badge if recreated
+
+### Access Control
+- New users land on `/waiting` — admin grants access via `user_access` table
+- Middleware blocks all protected routes until `granted = true`
+
+---
 
 ## Stack
 
-| Layer     | Tech                                 |
-| --------- | ------------------------------------ |
-| Framework | Next.js 14 (App Router, TypeScript)  |
-| Database  | Supabase (Postgres + Auth + RLS)     |
-| Styling   | Vanilla CSS (dark theme, Inter font) |
-| Hosting   | Vercel                               |
+| Layer     | Tech                                       |
+|-----------|--------------------------------------------|
+| Framework | Next.js (App Router, TypeScript)           |
+| Database  | Supabase (Postgres + Auth + RLS)           |
+| Styling   | Vanilla CSS (dark theme, Inter font)       |
+| Math      | KaTeX (CSES formula rendering)             |
+| Hosting   | Vercel                                     |
 
 ---
 
@@ -41,56 +85,84 @@ This tracker hides all that. You see the problem statement. You think. You solve
 ```
 dsa-tracker/
 ├── app/
-│   ├── page.tsx                  # / → Daily Queue
-│   ├── login/page.tsx            # /login → Auth (Google + email)
-│   ├── auth/callback/route.ts    # OAuth callback handler
-│   ├── problems/page.tsx         # /problems → Filterable list
-│   ├── analytics/page.tsx        # /analytics → Stats & charts
+│   ├── page.tsx                    # / → Daily Queue
+│   ├── login/page.tsx              # /login → Auth (Google + email)
+│   ├── waiting/page.tsx            # /waiting → Waitlist holding page
+│   ├── auth/callback/route.ts      # OAuth callback handler
+│   ├── problems/page.tsx           # /problems → Filterable table (1921 problems)
+│   ├── analytics/page.tsx          # /analytics → Stats, heatmap, weakness map
+│   ├── history/page.tsx            # /history → Past 30 daily queues
+│   ├── settings/page.tsx           # /settings → Queue & difficulty config
 │   └── api/
-│       ├── queue/route.ts        # GET today's queue + POST regenerate
-│       └── progress/route.ts     # POST update status
+│       ├── queue/route.ts          # GET today's queue | POST regenerate
+│       ├── queue/skip/route.ts     # POST replace one problem
+│       ├── progress/route.ts       # POST update problem status
+│       ├── settings/route.ts       # GET/POST user settings
+│       └── streak/route.ts         # GET current solve streak
 ├── components/
-│   ├── ProblemCard.tsx           # Blind card with 3-state reveal logic
-│   ├── ProblemRow.tsx            # Table row for /problems
-│   ├── Navbar.tsx                # Nav + user email + sign out
+│   ├── ProblemCard.tsx             # Blind card — reveal, timer, solve, skip
+│   ├── ProblemRow.tsx              # Table row for /problems
+│   ├── Navbar.tsx
 │   ├── StatusBadge.tsx
 │   ├── DifficultyBadge.tsx
 │   └── TopicTags.tsx
 ├── config/
-│   ├── topics.ts                 # OLT topics + relevance scores (1–10)
-│   └── queue.ts                  # Daily count, difficulty split, weights
+│   └── topics.ts                   # OLT topics + relevance scores (1–10)
 ├── lib/
-│   ├── supabase-server.ts        # Session-aware client (API routes)
-│   ├── supabase-admin.ts         # Service role client (seed only)
-│   └── supabase-browser.ts       # Anon client (client components)
-├── middleware.ts                  # Auth guard — redirects to /login
+│   ├── supabase-server.ts
+│   └── supabase-browser.ts
+├── middleware.ts                    # Auth guard + access check
 ├── scripts/
-│   └── seed.ts                   # One-time seed: local JSONs + leetcode.ca
+│   ├── seed-new.ts                 # Seed new LC problems from JSON exports
+│   ├── seed-cses.ts                # Seed CSES problems from cses-parsed.json
+│   ├── seed-subtypes.ts            # Write Gemini-classified sub-types to DB
+│   └── fetch-descriptions.ts       # Batch-fetch descriptions (LC GraphQL + cses.fi)
 ├── types/index.ts
-└── data/                         # Raw LeetCode export JSONs (gitignored)
+├── context/
+│   ├── notes.txt                   # Dev notes & task log
+│   ├── algo_notes.md               # Deep-dive: queue algorithm analysis
+│   └── critical_issues.md          # Post-mortems for major bugs fixed
+└── docs/
+    └── migrations/                 # SQL migration files (run in Supabase SQL Editor)
 ```
 
 ---
 
-## Queue Algorithm
+## Queue Algorithm (Deep Dive)
 
-1. Pull all unsolved free problems from `problems_with_status` (per-user via RLS)
-2. Split into difficulty buckets
-3. **Weighted random sample** within each bucket: `weight = olt_score² × difficulty_multiplier`
-4. Pick 2 Hard + 3 Medium (fallback to next difficulty if exhausted)
-5. Shuffle the 5 cards (hides position-based difficulty hints)
-6. Persist to `daily_queues` (stable for the day, per user)
+See [`context/algo_notes.md`](context/algo_notes.md) for a full analysis.
+
+### Summary
+
+```
+1. Fetch all eligible problems (unsolved, free) — paginated 1000/page
+2. Split into LC pool + CSES pool
+3. Allocate slots:
+     - Explicit CSES ratio set → use it directly (0% = 0 CSES)
+     - Auto (null)             → proportional to pool sizes, floor at 1
+4. For each pool, call sampleFromPool(pool, slots, hard, medium, easy):
+     a. Split pool by difficulty
+     b. threeStageSample() per difficulty bucket
+     c. Fill shortfall from whole pool if a bucket is exhausted
+5. threeStageSample():
+     Stage 1 → pick topic (weighted by olt_score² × weight_override, MAX 3/topic/day)
+     Stage 2 → pick sub-type (weighted by staleness, MAX 1/sub-type/day)
+     Stage 3 → pick problem (uniform random within sub-type)
+     Fallback A → relax sub-type uniqueness
+     Fallback B → fully unconstrained random
+6. Shuffle and persist to daily_queues
+```
 
 ### OLT Topic Scores
 
-| Score | Topics                                           |
-| ----- | ------------------------------------------------ |
-| 10    | Dynamic Programming, Graphs                      |
-| 9     | DFS, BFS, Trees, Binary Search                   |
-| 8     | Two Pointers, Sliding Window, Backtracking, Heap |
-| 7     | Arrays, Stack, Hash Table, Greedy                |
-| 6     | String, Linked List, Union-Find                  |
-| 5     | Trie, Bit Manipulation, Prefix Sum               |
+| Score | Topics                                              |
+|-------|-----------------------------------------------------|
+| 10    | Dynamic Programming, Graphs                         |
+| 9     | DFS, BFS, Trees, Binary Search                      |
+| 8     | Two Pointers, Sliding Window, Backtracking, Heap    |
+| 7     | Arrays, Stack, Hash Table, Greedy                   |
+| 6     | String, Linked List, Union-Find                     |
+| 5     | Trie, Bit Manipulation, Prefix Sum                  |
 
 ---
 
@@ -111,84 +183,53 @@ npm install
 
 ### 2. Environment variables
 
-```bash
-cp .env.example .env.local
-# Fill in your Supabase URL, anon key, and service role key
-```
-
-### 3. Create Supabase schema
-
-Run in **Supabase → SQL Editor**:
-
-```sql
-CREATE TABLE problems (
-  id          INTEGER PRIMARY KEY,
-  title       TEXT NOT NULL,
-  title_slug  TEXT NOT NULL UNIQUE,
-  difficulty  TEXT NOT NULL CHECK (difficulty IN ('EASY','MEDIUM','HARD')),
-  topic_tags  TEXT[] NOT NULL,
-  description TEXT,
-  ac_rate     FLOAT,
-  paid_only   BOOLEAN DEFAULT FALSE,
-  olt_score   INTEGER DEFAULT 0,
-  created_at  TIMESTAMPTZ DEFAULT NOW()
-);
-
-CREATE INDEX idx_problems_difficulty ON problems(difficulty);
-CREATE INDEX idx_problems_topic_tags ON problems USING GIN(topic_tags);
-
-CREATE TABLE user_progress (
-  problem_id INTEGER NOT NULL REFERENCES problems(id) ON DELETE CASCADE,
-  user_id    UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  status     TEXT    NOT NULL DEFAULT 'TO_DO'
-             CHECK (status IN ('TO_DO','ATTEMPTING','SOLVED')),
-  updated_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (problem_id, user_id)
-);
-
-CREATE TABLE daily_queues (
-  date        DATE    NOT NULL,
-  user_id     UUID    NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  problem_ids INTEGER[] NOT NULL,
-  generated_at TIMESTAMPTZ DEFAULT NOW(),
-  PRIMARY KEY (date, user_id)
-);
-
--- Per-user view using auth.uid()
-CREATE VIEW problems_with_status AS
-  SELECT p.*, COALESCE(up.status,'TO_DO') AS status, up.updated_at AS status_updated_at
-  FROM problems p
-  LEFT JOIN user_progress up ON p.id = up.problem_id AND up.user_id = auth.uid();
-
--- RLS
-ALTER TABLE problems      ENABLE ROW LEVEL SECURITY;
-ALTER TABLE user_progress ENABLE ROW LEVEL SECURITY;
-ALTER TABLE daily_queues  ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "problems_read" ON problems      FOR SELECT USING (true);
-CREATE POLICY "own_progress"  ON user_progress USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-CREATE POLICY "own_queues"    ON daily_queues  USING (user_id = auth.uid()) WITH CHECK (user_id = auth.uid());
-```
-
-### 4. Enable Google OAuth (optional)
-
-1. [Google Cloud Console](https://console.cloud.google.com) → Credentials → Create OAuth 2.0 Client
-   - Redirect URI: `https://<your-supabase-ref>.supabase.co/auth/v1/callback`
-2. Supabase → Auth → Providers → Google → paste Client ID + Secret → Enable
-3. Supabase → Auth → URL Configuration → set Site URL + add redirect URL
-
-### 5. Seed the database
-
-Put your LeetCode export JSON files in `data/` then:
+Create `.env.local`:
 
 ```bash
-export $(grep -v '^#' .env.local | xargs)
-npx tsx scripts/seed.ts
+NEXT_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
+GEMINI_API_KEY=<gemini-key>         # only needed for sub-type classification
 ```
 
-The seed script deduplicates, filters to free OLT-relevant problems, scrapes descriptions from [leetcode.ca](https://leetcode.ca), computes OLT scores, and upserts in batches.
+### 3. Database schema
 
-### 6. Run locally
+Run the SQL files in order in **Supabase → SQL Editor**:
+
+```
+docs/migrations/
+├── phase1.sql          # Core tables (problems, user_progress, daily_queues)
+├── phase2.sql          # user_settings, problems_with_status view
+├── phase3.sql          # user_access (waitlist), streak, history
+├── phase4f.sql         # cses_ratio column on user_settings
+└── fix_new_user_trigger.sql  # Safe trigger for auto-creating user_access row
+```
+
+Key schema additions beyond basic:
+- `problems.source` — `'leetcode'` | `'cses'`
+- `problems.sub_type` — Gemini-classified sub-type (e.g. `'knapsack-dp'`)
+- `problems.external_url` — CSES task URL (LC problems use title_slug)
+- `user_settings.cses_ratio` — REAL, null = auto
+- `user_access` — `(user_id, granted)` for waitlist control
+
+### 4. Seed problems
+
+```bash
+# LC problems (from JSON exports in data/)
+npx tsx scripts/seed-new.ts
+
+# CSES problems
+npx tsx scripts/seed-cses.ts
+
+# Sub-type classification via Gemini
+npx tsx scripts/seed-subtypes.ts
+
+# Fetch descriptions (LC from GraphQL, CSES from cses.fi)
+SOURCE=lc   npx ts-node scripts/fetch-descriptions.ts
+SOURCE=cses npx ts-node scripts/fetch-descriptions.ts   # run from local machine (cses.fi firewalled from some servers)
+```
+
+### 5. Run locally
 
 ```bash
 npm run dev
@@ -201,19 +242,25 @@ npm run dev
 
 1. Push to GitHub
 2. Import at [vercel.com/new](https://vercel.com/new)
-3. Add env vars from `.env.example`
+3. Add env vars from `.env.local`
 4. Deploy
+
+New users will land on `/waiting` until you grant access in Supabase:
+```sql
+UPDATE user_access SET granted = true WHERE user_id = '<uuid>';
+```
 
 ---
 
-## Extending
+## Known Limitations
 
-| Feature             | Where to change                                     |
-| ------------------- | --------------------------------------------------- |
-| Daily problem count | `config/queue.ts` → `dailyCount`                    |
-| Difficulty split    | `config/queue.ts` → `hardCount / mediumCount`       |
-| OLT topics          | `config/topics.ts`                                  |
-| Add more problems   | Drop new JSON in `data/` → re-run `scripts/seed.ts` |
+| # | Issue | Notes |
+|---|-------|-------|
+| 1 | Supabase PostgREST max-rows cap at 1000 | Solved via paginated `.range()` fetches |
+| 2 | 0% CSES slider still gives 0 problems (auto-floor removed for explicit values) | Working |
+| 3 | Skip replacement doesn't respect sub-type uniqueness | Low priority |
+| 4 | No spaced repetition — solved problems excluded permanently | By design for now |
+| 5 | Topic weights (slider UI) not yet implemented | Planned |
 
 ---
 
