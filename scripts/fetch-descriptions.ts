@@ -27,6 +27,7 @@ for (const f of ['.env.local', '.env']) {
 }
 
 const DRY_RUN = process.env.DRY_RUN === 'true';
+const SOURCE  = process.env.SOURCE ?? 'all';  // 'lc' | 'cses' | 'all'
 const DELAY_MS = 400;     // ms between requests (be polite to both APIs)
 const BATCH_SIZE = 50;    // DB update batch size
 const MAX_ERRORS = 20;    // abort if too many consecutive errors
@@ -112,7 +113,7 @@ interface Problem {
 }
 
 async function main() {
-  console.log(`\n🔍 fetch-descriptions — DRY_RUN=${DRY_RUN}\n`);
+  console.log(`\n🔍 fetch-descriptions — DRY_RUN=${DRY_RUN} SOURCE=${SOURCE}\n`);
 
   // Fetch all problems missing descriptions (paginated)
   const nullProblems: Problem[] = [];
@@ -129,8 +130,12 @@ async function main() {
     if (data.length < PAGE) break;
   }
 
-  const lcProblems   = nullProblems.filter(p => !p.source || p.source === 'leetcode');
-  const csesProblems = nullProblems.filter(p => p.source === 'cses');
+  const lcProblems   = SOURCE !== 'cses'
+    ? nullProblems.filter(p => !p.source || p.source === 'leetcode')
+    : [];
+  const csesProblems = SOURCE !== 'lc'
+    ? nullProblems.filter(p => p.source === 'cses')
+    : [];
 
   console.log(`📦 Problems needing descriptions:`);
   console.log(`   LC  : ${lcProblems.length}`);
