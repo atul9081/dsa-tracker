@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useEffect, useRef, useState } from 'react';
+import katex from 'katex';
 import type { ProblemWithStatus, Status } from '@/types';
 import DifficultyBadge from './DifficultyBadge';
 import TopicTags from './TopicTags';
@@ -187,6 +188,27 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
   const isLong    = descHtml.length > DESCRIPTION_THRESHOLD;
   const solveTimeSecs = problem.solve_duration_secs ?? null;
 
+  // ── KaTeX math rendering ──────────────────────────────────────────────────
+  // CSES descriptions contain raw LaTeX in <span class="math math-inline">
+  // and <span class="math math-display"> spans. Render them client-side.
+  const descRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!revealed || !descVisible || !descRef.current) return;
+    descRef.current.querySelectorAll<HTMLElement>('.math').forEach(el => {
+      const latex = el.textContent ?? '';
+      const displayMode = el.classList.contains('math-display');
+      try {
+        el.innerHTML = katex.renderToString(latex, {
+          displayMode,
+          throwOnError: false,
+          output: 'html',
+        });
+      } catch {
+        // leave raw LaTeX as-is if parsing fails
+      }
+    });
+  }, [revealed, descVisible]);
+
   // ── Shared description block ──────────────────────────────────────────────
   // Renders either the compact blurred block or the full readable description.
   const descriptionBlock = descHtml ? (
@@ -242,7 +264,7 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
       </div>
     ) : (
       /* ── Full readable description ── */
-      <div>
+      <div ref={descRef}>
         <div
           className="problem-description"
           dangerouslySetInnerHTML={{ __html: safeDesc }}
