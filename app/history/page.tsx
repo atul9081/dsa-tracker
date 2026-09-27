@@ -94,7 +94,7 @@ export default function HistoryPage() {
             <div style={{ fontSize: '40px', marginBottom: '12px' }}>📭</div>
             <p style={{ margin: 0, fontSize: '15px', fontWeight: 600, color: 'var(--text-secondary)' }}>No history yet</p>
             <p style={{ margin: '6px 0 0', fontSize: '13px' }}>
-              Your daily queues will appear here after the database migration runs.
+              No queues recorded yet. Visit the <a href="/" style={{ color: 'var(--accent-blue)' }}>home page</a> to generate today&apos;s first queue.
             </p>
           </div>
         ) : (

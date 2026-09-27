@@ -338,12 +338,15 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
 
   // ── SOLVED state ──────────────────────────────────────────────────────────
   if (status === 'SOLVED') {
+    // Derive platform label for display after solve (UX #12)
+    const platformLabel = problem.source === 'cses' ? 'CSES' : 'LC';
+
     return (
       <>
         <Toast
           message={toastMsg}
           visible={toastVisible}
-          duration={5000}
+          duration={8000}
           onDismiss={() => { setToastVisible(false); setUndoPending(false); }}
           action={undoPending ? { label: 'Undo', onClick: handleUndo } : undefined}
         />
@@ -364,19 +367,43 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
               </h3>
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexShrink: 0, flexWrap: 'wrap' }}>
-              {solveTimeSecs !== null && (
-                <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>⏱ {formatSecs(solveTimeSecs)}</span>
-              )}
+              {/* UX #12: show platform (LC / CSES) after solve */}
+              <span style={{
+                fontSize: '11px', color: 'var(--text-muted)', background: 'var(--bg-elevated)',
+                border: '1px solid var(--border)', borderRadius: '5px', padding: '2px 7px', fontWeight: 600,
+              }}>{platformLabel}</span>
               <DifficultyBadge difficulty={problem.difficulty} size="sm" />
+              {/* UX #7: solve time shown inside / beside the Solved badge for prominence */}
               <span style={{
                 background: 'var(--accent-green)22', color: 'var(--accent-green)',
                 border: '1px solid var(--accent-green)55', borderRadius: '6px',
                 padding: '4px 10px', fontSize: '12px', fontWeight: 600,
-              }}>✅ Solved</span>
+                display: 'flex', alignItems: 'center', gap: '6px',
+              }}>
+                ✅ Solved
+                {solveTimeSecs !== null && (
+                  <span style={{ opacity: 0.75, fontWeight: 500, fontSize: '11px' }}>· {formatSecs(solveTimeSecs)}</span>
+                )}
+              </span>
+              {/* UX #2: persistent link to revisit the problem — always visible after solve */}
+              <a
+                href={solveUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: 'var(--text-muted)', fontSize: '12px', textDecoration: 'none',
+                  border: '1px solid var(--border)', borderRadius: '5px', padding: '3px 8px',
+                  transition: 'color 0.15s, border-color 0.15s',
+                }}
+                onMouseEnter={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--accent-blue)'; (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--accent-blue)55'; }}
+                onMouseLeave={e => { (e.currentTarget as HTMLAnchorElement).style.color = 'var(--text-muted)'; (e.currentTarget as HTMLAnchorElement).style.borderColor = 'var(--border)'; }}
+              >
+                ↗ Open
+              </a>
             </div>
           </div>
 
-          {/* Topics revealed on SOLVED */}
+          {/* Topics + platform tag revealed on SOLVED */}
           {problem.topic_tags?.length > 0 && <TopicTags slugs={problem.topic_tags} />}
 
           {/* Collapsible description */}
@@ -408,7 +435,7 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
               <p style={{ marginTop: '12px', color: 'var(--text-muted)', fontSize: '13px', fontStyle: 'italic' }}>
                 No cached description.{' '}
                 <a href={solveUrl} target="_blank" rel="noopener noreferrer"
-                   style={{ color: 'var(--accent-blue)' }}>↗ Solve</a>
+                   style={{ color: 'var(--accent-blue)' }}>↗ Open</a>
               </p>
             )}
           </div>
@@ -418,13 +445,21 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
   }
 
   // ── ATTEMPTING state ──────────────────────────────────────────────────────
+  // UX #5: allow the user to restart their timer (re-trigger handleReveal).
+  const handleRestartTimer = async () => {
+    const now = Date.now();
+    setTimerStart(now);
+    setElapsed(0);
+    await updateStatus('ATTEMPTING', { attemptStartedAt: now });
+  };
+
   if (status === 'ATTEMPTING') {
     return (
       <>
         <Toast
           message={toastMsg}
           visible={toastVisible}
-          duration={5000}
+          duration={8000}
           onDismiss={() => { setToastVisible(false); setUndoPending(false); }}
           action={undoPending ? { label: 'Undo', onClick: handleUndo } : undefined}
         />
@@ -444,9 +479,13 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
                 {problem.title}
               </h3>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexShrink: 0 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0, flexWrap: 'wrap' }}>
               {timerStart && elapsed < MAX_TIMER_SECS && (
-                <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontVariantNumeric: 'tabular-nums' }}>
+                <span
+                  title="Click to restart timer"
+                  onClick={handleRestartTimer}
+                  style={{ color: 'var(--text-muted)', fontSize: '12px', fontVariantNumeric: 'tabular-nums', cursor: 'pointer' }}
+                >
                   ⏱ {formatSecs(elapsed)}
                 </span>
               )}
@@ -515,7 +554,7 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
             </h3>
           </div>
           <span
-            title="Difficulty and topics are hidden until you solve this problem"
+            title="Blind practice mode — difficulty and topics are intentionally hidden to avoid anchoring bias. They'll be revealed once you mark this solved."
             style={{
               fontSize: '11px', color: 'var(--text-muted)', background: 'var(--bg-elevated)',
               border: '1px solid var(--border)', borderRadius: '6px', padding: '3px 8px',

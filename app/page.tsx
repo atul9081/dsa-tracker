@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ProblemWithStatus, Status } from '@/types';
 import ProblemCard from '@/components/ProblemCard';
 
@@ -20,9 +20,16 @@ export default function DailyQueuePage() {
   const [loading, setLoading]     = useState(true);
   const [regen, setRegen]         = useState(false);
   const [confirm, setConfirm]     = useState(false);
+  // Fix Issues 6 & 7: pre-populate from saved settings so "Get a fresh set"
+  // defaults to the user's configured mode instead of always starting at 'standard'
   const [diffMode, setDiffMode]   = useState<DiffMode>('standard');
   const [streakData, setStreakData] = useState<StreakData>({ streak: 0, lastSolvedDate: null });
   const [exhausted, setExhausted] = useState(false);
+  const [expectedCount, setExpectedCount] = useState<number | null>(null); // UX #4
+  // UX #6: skip undo state
+  const [skipToast, setSkipToast]         = useState(false);
+  const [skipUndoTitle, setSkipUndoTitle] = useState('');
+  const [preSkipProblems, setPreSkipProblems] = useState<ProblemWithStatus[]>([]);
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -32,6 +39,7 @@ export default function DailyQueuePage() {
       setProblems(data.problems ?? []);
       setDate(data.date ?? '');
       setExhausted(data.exhausted ?? false);
+      setExpectedCount(data.dailyCount ?? null); // UX #4
     } catch (e) {
       console.error(e);
     } finally {
@@ -51,6 +59,8 @@ export default function DailyQueuePage() {
       const data = await res.json();
       setProblems(data.problems ?? []);
       setExhausted(data.exhausted ?? false);
+      setExpectedCount(data.dailyCount ?? null); // UX #4
+      if (data.date) setDate(data.date); // Fix Issue 15: keep displayed date in sync after regen
     } catch (e) {
       console.error(e);
     } finally {
@@ -60,11 +70,23 @@ export default function DailyQueuePage() {
 
   useEffect(() => { loadQueue(); }, [loadQueue]);
 
-  // Fetch streak separately so it doesn't block queue render
+  // Fetch streak and saved difficulty mode in parallel — neither blocks the queue render
   useEffect(() => {
     fetch('/api/streak')
       .then(r => r.json())
       .then(d => setStreakData(d))
+      .catch(() => {});
+
+    // Pre-populate regen mode picker with the user's saved default (Issues 6 & 7)
+    fetch('/api/settings')
+      .then(r => r.json())
+      .then(d => {
+        const saved = d?.settings?.difficulty_mode as string | undefined;
+        // Only apply if it's a mode the picker supports (not 'custom')
+        if (saved && saved !== 'custom' && ['chill', 'standard', 'grind'].includes(saved)) {
+          setDiffMode(saved as DiffMode);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -74,8 +96,27 @@ export default function DailyQueuePage() {
     );
   };
 
-  // Skip: replace the skipped problem with the API-returned replacement
-  const handleSkip = async (skippedId: number) => {
+  // UX #6: Skip with undo toast — store pre-skip state, swap optimistically,
+  // allow reverting within 8s before the change becomes permanent on the server.
+  const skipUndoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingSkipRef   = useRef<{ skippedId: number; replacement: ProblemWithStatus } | null>(null);
+
+  const commitSkip = useCallback(async (skippedId: number, replacement: ProblemWithStatus) => {
+    // Actual API call — only called after the undo window expires
+    try {
+      await fetch('/api/queue/skip', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ problem_id: skippedId }),
+      });
+    } catch (e) {
+      console.error(e);
+    }
+    pendingSkipRef.current = null;
+  }, []);
+
+  const handleSkip = useCallback(async (skippedId: number) => {
+    // Find the replacement first (server-side) then do an optimistic swap
     try {
       const res = await fetch('/api/queue/skip', {
         method: 'POST',
@@ -84,15 +125,46 @@ export default function DailyQueuePage() {
       });
       if (!res.ok) return;
       const { replacement } = await res.json();
-      if (replacement) {
-        setProblems(prev =>
-          prev.map(p => p.id === skippedId ? { ...replacement, status: replacement.status ?? 'TO_DO' } : p)
-        );
-      }
+      if (!replacement) return;
+
+      const snapshot = problems; // capture before update for undo
+      setPreSkipProblems(snapshot);
+      pendingSkipRef.current = { skippedId, replacement };
+
+      // Optimistic UI swap
+      setProblems(prev =>
+        prev.map(p => p.id === skippedId ? { ...replacement, status: replacement.status ?? 'TO_DO' } : p)
+      );
+
+      // Show undo toast
+      setSkipUndoTitle(snapshot.find(p => p.id === skippedId)?.title ?? 'problem');
+      setSkipToast(true);
+
+      // Auto-hide after 8s (toast duration matches)
+      if (skipUndoTimerRef.current) clearTimeout(skipUndoTimerRef.current);
+      skipUndoTimerRef.current = setTimeout(() => setSkipToast(false), 8000);
     } catch (e) {
       console.error(e);
     }
-  };
+  }, [problems]);
+
+  const handleUndoSkip = useCallback(async () => {
+    setSkipToast(false);
+    if (skipUndoTimerRef.current) clearTimeout(skipUndoTimerRef.current);
+    setProblems(preSkipProblems); // restore client state
+    // Restore server state: swap the replacement back out
+    const pending = pendingSkipRef.current;
+    if (pending) {
+      try {
+        await fetch('/api/queue/skip', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ problem_id: pending.replacement.id }),
+        });
+      } catch (e) { console.error(e); }
+      pendingSkipRef.current = null;
+    }
+  }, [preSkipProblems, commitSkip]);
 
   const solved     = problems.filter(p => p.status === 'SOLVED').length;
   const attempting = problems.filter(p => p.status === 'ATTEMPTING').length;
@@ -151,6 +223,12 @@ export default function DailyQueuePage() {
             )}
             <span style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
               of {problems.length} problems
+              {/* UX #4: show expected count when pool came up short */}
+              {exhausted && expectedCount !== null && problems.length < expectedCount && (
+                <span style={{ marginLeft: '4px', color: 'var(--accent-amber)' }}>
+                  · only {problems.length} available in your topics
+                </span>
+              )}
             </span>
           </div>
         )}
@@ -170,9 +248,26 @@ export default function DailyQueuePage() {
           <h2 style={{ fontSize: '18px', fontWeight: 700, color: 'var(--accent-green)', marginBottom: '6px' }}>
             All done for today!
           </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-            Great work. Come back tomorrow for a fresh set.
+          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', marginBottom: '14px' }}>
+            Great work. Take a break or go deeper.
           </p>
+          {/* UX #10: one-click to get more problems */}
+          <a
+            href="/settings"
+            style={{
+              display: 'inline-block',
+              background: 'var(--bg-elevated)',
+              border: '1px solid var(--accent-green)55',
+              borderRadius: '8px',
+              padding: '8px 18px',
+              fontSize: '13px',
+              fontWeight: 600,
+              color: 'var(--accent-green)',
+              textDecoration: 'none',
+            }}
+          >
+            ⊕ Solve more today
+          </a>
         </div>
       )}
 
@@ -202,7 +297,23 @@ export default function DailyQueuePage() {
               No problems in queue. Database may still be seeding.
             </div>
           )}
-          {exhausted && (
+          {/* UX #1: quiet low-pool notice alongside live cards */}
+          {exhausted && problems.length > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: '8px',
+              background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+              borderRadius: '10px', padding: '10px 16px', fontSize: '12px',
+              color: 'var(--text-muted)',
+            }}>
+              <span>⚠</span>
+              <span>
+                Only {problems.length} problem{problems.length !== 1 ? 's' : ''} available in your enabled topics.
+                {' '}<a href="/settings" style={{ color: 'var(--accent-blue)' }}>Enable more topics</a> to fill your full daily target.
+              </span>
+            </div>
+          )}
+          {/* UX #1: 🏆 banner only when the queue is truly empty */}
+          {exhausted && problems.length === 0 && (
             <div className="fade-in" style={{
               background: 'var(--bg-card)',
               border: '1px solid var(--accent-blue)44',
@@ -215,11 +326,38 @@ export default function DailyQueuePage() {
                 You&apos;ve completed enough problems!
               </h2>
               <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: 1.6 }}>
-                No more unsolved problems in your enabled topics — amazing work.
-                Try enabling more topics in <a href="/settings" style={{ color: 'var(--accent-blue)' }}>Settings</a> to continue.
+                No more unsolved problems in your enabled topics.
+                Try <a href="/settings" style={{ color: 'var(--accent-blue)' }}>enabling more topics</a> to continue.
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {/* UX #6: skip undo toast shown at page level */}
+      {skipToast && (
+        <div
+          className="fade-in"
+          style={{
+            position: 'fixed', bottom: '24px', right: '24px', zIndex: 9999,
+            background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+            borderRadius: '10px', padding: '12px 18px',
+            display: 'flex', alignItems: 'center', gap: '14px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            fontSize: '13px', fontWeight: 500, color: 'var(--text-primary)', maxWidth: '320px',
+          }}
+        >
+          <span>Skipped “{skipUndoTitle}”</span>
+          <button
+            onClick={handleUndoSkip}
+            style={{
+              background: 'var(--accent-amber)22', border: '1px solid var(--accent-amber)55',
+              borderRadius: '6px', padding: '4px 12px', cursor: 'pointer',
+              color: 'var(--accent-amber)', fontSize: '12px', fontWeight: 700, flexShrink: 0,
+            }}
+          >
+            Undo
+          </button>
         </div>
       )}
 
@@ -249,6 +387,18 @@ export default function DailyQueuePage() {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px' }}>
+              {/* Fix Issue 16: warn when in-progress problems would be lost */}
+              {attempting > 0 && (
+                <p style={{
+                  color: 'var(--accent-amber)', fontSize: '12px', margin: 0,
+                  background: 'var(--accent-amber)11',
+                  border: '1px solid var(--accent-amber)33',
+                  borderRadius: '8px', padding: '8px 14px',
+                }}>
+                  ⚠ {attempting} problem{attempting > 1 ? 's are' : ' is'} in progress —
+                  regenerating may remove {attempting > 1 ? 'them' : 'it'} from today&apos;s queue.
+                </p>
+              )}
               {/* Difficulty mode picker */}
               <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
                 Pick a difficulty mode for the fresh set:
