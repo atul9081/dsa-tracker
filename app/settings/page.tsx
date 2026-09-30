@@ -19,12 +19,25 @@ const PRESET_TABLE: Record<
   grind:    { 3: { hard_count: 2, medium_count: 1, easy_count: 0 }, 5: { hard_count: 2, medium_count: 3, easy_count: 0 }, 7: { hard_count: 3, medium_count: 4, easy_count: 0 } },
 };
 
-const DIFF_MODES: Array<{ key: DiffMode; label: string; desc: string }> = [
-  { key: 'chill',    label: '😌 Chill',    desc: '0H · 2M · 1E → 0H · 4M · 3E' },
-  { key: 'standard', label: '⚡ Standard', desc: '1H · 2M → 2H · 3M · 2E'   },
-  { key: 'grind',    label: '🔥 Grind',    desc: '2H · 1M → 3H · 4M'         },
-  { key: 'custom',   label: '⚙️ Custom',   desc: 'Set your own'               },
+const DIFF_MODES: Array<{ key: DiffMode; label: string }> = [
+  { key: 'chill',    label: '😌 Chill'    },
+  { key: 'standard', label: '⚡ Standard' },
+  { key: 'grind',    label: '🔥 Grind'    },
+  { key: 'custom',   label: '⚙️ Custom'   },
 ];
+
+function modeDesc(mode: Exclude<DiffMode, 'custom'>, count: number): string {
+  const counts = [3, 5, 7];
+  const nearest = counts.reduce((p, c) =>
+    Math.abs(c - count) < Math.abs(p - count) ? c : p
+  );
+  const d = PRESET_TABLE[mode][nearest];
+  const parts: string[] = [];
+  if (d.hard_count   > 0) parts.push(`${d.hard_count}H`);
+  if (d.medium_count > 0) parts.push(`${d.medium_count}M`);
+  if (d.easy_count   > 0) parts.push(`${d.easy_count}E`);
+  return parts.join(' · ');
+}
 
 const DEFAULT_SETTINGS: UserSettings = {
   daily_count: 5,
@@ -228,7 +241,7 @@ export default function SettingsPage() {
               >
                 {m.label}
                 <span style={{ display: 'block', fontSize: '10px', fontWeight: 400, opacity: 0.7, marginTop: '2px' }}>
-                  {m.desc}
+                  {m.key === 'custom' ? 'Set your own' : modeDesc(m.key, settings.daily_count ?? 5)}
                 </span>
               </button>
             ))}
