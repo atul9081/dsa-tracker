@@ -50,6 +50,8 @@ export interface UserSettings {
   enabled_sources?: PlatformSource[];     // default: ['leetcode']
   cooldown_days?: number;                 // sub-type cooldown window, default: 7
   cses_ratio?: number | null;             // 0.0–1.0 CSES fraction; null = auto (proportional)
+  // Sub-topic config — null = all sub-types eligible for all topics
+  enabled_sub_type_slugs?: Record<string, string[]> | null;
 }
 
 

@@ -13,6 +13,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   enabled_sources: ['leetcode'],
   cooldown_days: 7,
   cses_ratio: null,
+  enabled_sub_type_slugs: null,
 };
 
 export async function GET() {
@@ -43,6 +44,7 @@ export async function GET() {
       enabled_sources: data.enabled_sources ?? DEFAULT_SETTINGS.enabled_sources,
       cooldown_days: data.cooldown_days ?? DEFAULT_SETTINGS.cooldown_days,
       cses_ratio: data.cses_ratio ?? null,
+      enabled_sub_type_slugs: data.enabled_sub_type_slugs ?? null,
     };
 
     return NextResponse.json({ settings });
@@ -73,6 +75,7 @@ export async function POST(req: Request) {
     if (body.enabled_sources !== undefined)        settings.enabled_sources = body.enabled_sources;
     if (body.cooldown_days !== undefined)          settings.cooldown_days = Math.max(1, Math.min(21, Number(body.cooldown_days)));
     if ('cses_ratio' in body)                      settings.cses_ratio = body.cses_ratio === null ? null : Math.min(1, Math.max(0, Number(body.cses_ratio)));
+    if ('enabled_sub_type_slugs' in body)          settings.enabled_sub_type_slugs = body.enabled_sub_type_slugs;
 
     const { error } = await supabase
       .from('user_settings')

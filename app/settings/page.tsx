@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { OLT_TOPICS } from '@/config/topics';
+import { OLT_TOPICS, SUB_TYPES_BY_TOPIC, prettifySubtype } from '@/config/topics';
 import type { UserSettings } from '@/types';
 
 type DiffMode = 'chill' | 'standard' | 'grind' | 'custom';
@@ -75,6 +75,59 @@ export default function SettingsPage() {
   // We treat null as "all checkboxes on"
   const allEnabled = settings.enabled_topic_slugs === null;
   const enabledSet = new Set(settings.enabled_topic_slugs ?? OLT_TOPICS.map(t => t.slug));
+
+  // Sub-type expand/collapse state
+  const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
+
+  const toggleTopicExpand = (slug: string) => {
+    setExpandedTopics(prev => {
+      const next = new Set(prev);
+      next.has(slug) ? next.delete(slug) : next.add(slug);
+      return next;
+    });
+  };
+
+  // Sub-type helpers
+  const enabledSubTypes: Record<string, string[]> | null = settings.enabled_sub_type_slugs ?? null;
+
+  /** Returns the enabled sub-type set for a topic, or all sub-types if no filter active */
+  const getEnabledSubTypesForTopic = (topicSlug: string): string[] => {
+    if (!enabledSubTypes || !(topicSlug in enabledSubTypes)) {
+      return SUB_TYPES_BY_TOPIC[topicSlug] ?? [];
+    }
+    return enabledSubTypes[topicSlug];
+  };
+
+  const toggleSubType = (topicSlug: string, subtype: string) => {
+    const all = SUB_TYPES_BY_TOPIC[topicSlug] ?? [];
+    const current = getEnabledSubTypesForTopic(topicSlug);
+    const next = current.includes(subtype)
+      ? current.filter(s => s !== subtype)
+      : [...current, subtype];
+
+    setSettings(s => {
+      const record = { ...(s.enabled_sub_type_slugs ?? {}) };
+      // If all sub-types selected → remove the key (null/absent = all enabled)
+      if (next.length === all.length) delete record[topicSlug];
+      else record[topicSlug] = next;
+      return { ...s, enabled_sub_type_slugs: Object.keys(record).length === 0 ? null : record };
+    });
+  };
+
+  const selectAllSubTypes = (topicSlug: string) => {
+    setSettings(s => {
+      const record = { ...(s.enabled_sub_type_slugs ?? {}) };
+      delete record[topicSlug]; // remove key = all enabled
+      return { ...s, enabled_sub_type_slugs: Object.keys(record).length === 0 ? null : record };
+    });
+  };
+
+  const clearAllSubTypes = (topicSlug: string) => {
+    setSettings(s => ({
+      ...s,
+      enabled_sub_type_slugs: { ...(s.enabled_sub_type_slugs ?? {}), [topicSlug]: [] },
+    }));
+  };
 
   useEffect(() => {
     (async () => {
@@ -455,40 +508,145 @@ export default function SettingsPage() {
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           {OLT_TOPICS.map(topic => {
             const on = allEnabled || enabledSet.has(topic.slug);
+            const subtypes = SUB_TYPES_BY_TOPIC[topic.slug] ?? [];
+            const enabledSubs = getEnabledSubTypesForTopic(topic.slug);
+            const allSubsEnabled = !enabledSubTypes || !(topic.slug in (enabledSubTypes ?? {}));
+            const expanded = expandedTopics.has(topic.slug);
+            const badgeText = allSubsEnabled
+              ? 'All sub-types'
+              : `${enabledSubs.length} / ${subtypes.length} sub-types`;
+            const hasNoSubsSelected = !allSubsEnabled && enabledSubs.length === 0;
+
             return (
-              <label
-                key={topic.slug}
-                style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '12px',
-                  padding: '9px 12px',
-                  borderRadius: '8px',
-                  cursor: 'pointer',
-                  transition: 'background 0.1s',
-                  background: on ? 'var(--bg-elevated)' : 'transparent',
-                  border: `1px solid ${on ? 'var(--border)' : 'transparent'}`,
-                }}
-                onMouseEnter={e => { if (!on) (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)22'; }}
-                onMouseLeave={e => { if (!on) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
-              >
-                <input
-                  type="checkbox"
-                  checked={on}
-                  onChange={() => toggleTopic(topic.slug)}
-                  style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: 'var(--accent-blue)' }}
-                />
-                <span style={{ fontSize: '14px', color: on ? 'var(--text-primary)' : 'var(--text-muted)', flex: 1 }}>
-                  {topic.name}
-                </span>
-                <span style={{
-                  fontSize: '11px', color: 'var(--text-muted)',
-                  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-                  borderRadius: '4px', padding: '2px 7px',
-                }}>
-                  score {topic.score}
-                </span>
-              </label>
+              <div key={topic.slug}>
+                {/* Topic row */}
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    padding: '9px 12px',
+                    borderRadius: expanded ? '8px 8px 0 0' : '8px',
+                    cursor: 'pointer',
+                    transition: 'background 0.1s',
+                    background: on ? 'var(--bg-elevated)' : 'transparent',
+                    border: `1px solid ${on ? 'var(--border)' : 'transparent'}`,
+                    borderBottom: expanded && on ? '1px solid var(--border)33' : undefined,
+                  }}
+                  onMouseEnter={e => { if (!on) (e.currentTarget as HTMLElement).style.background = 'var(--bg-elevated)22'; }}
+                  onMouseLeave={e => { if (!on) (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    onChange={() => toggleTopic(topic.slug)}
+                    style={{ width: '15px', height: '15px', cursor: 'pointer', accentColor: 'var(--accent-blue)' }}
+                  />
+                  <span style={{ fontSize: '14px', color: on ? 'var(--text-primary)' : 'var(--text-muted)', flex: 1 }}>
+                    {topic.name}
+                  </span>
+                  <span style={{
+                    fontSize: '11px', color: 'var(--text-muted)',
+                    background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                    borderRadius: '4px', padding: '2px 7px',
+                  }}>
+                    score {topic.score}
+                  </span>
+                  {/* Sub-type expand toggle — only show for enabled topics with sub-types */}
+                  {on && subtypes.length > 0 && (
+                    <button
+                      onClick={e => { e.preventDefault(); toggleTopicExpand(topic.slug); }}
+                      title={expanded ? 'Hide sub-types' : 'Configure sub-types'}
+                      style={{
+                        background: hasNoSubsSelected ? 'var(--diff-hard)22' : (allSubsEnabled ? 'transparent' : 'var(--accent-blue)15'),
+                        border: `1px solid ${hasNoSubsSelected ? 'var(--diff-hard)55' : (allSubsEnabled ? 'var(--border)' : 'var(--accent-blue)44')}`,
+                        borderRadius: '6px',
+                        padding: '2px 8px',
+                        cursor: 'pointer',
+                        fontSize: '11px',
+                        fontWeight: allSubsEnabled ? 400 : 600,
+                        color: hasNoSubsSelected ? 'var(--diff-hard)' : (allSubsEnabled ? 'var(--text-muted)' : 'var(--accent-blue)'),
+                        display: 'flex', alignItems: 'center', gap: '4px',
+                        flexShrink: 0,
+                        whiteSpace: 'nowrap',
+                      }}
+                    >
+                      {badgeText} {expanded ? '▲' : '▼'}
+                    </button>
+                  )}
+                </label>
+
+                {/* Sub-type panel */}
+                {on && expanded && subtypes.length > 0 && (
+                  <div
+                    className="fade-in"
+                    style={{
+                      background: 'var(--bg-card)',
+                      border: '1px solid var(--border)',
+                      borderTop: 'none',
+                      borderRadius: '0 0 8px 8px',
+                      padding: '12px 14px',
+                      marginBottom: '2px',
+                    }}
+                  >
+                    {/* Mini actions */}
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '10px', alignItems: 'center' }}>
+                      <button
+                        onClick={() => selectAllSubTypes(topic.slug)}
+                        style={{
+                          background: 'none', border: '1px solid var(--border)',
+                          borderRadius: '5px', padding: '3px 10px',
+                          color: 'var(--text-muted)', fontSize: '11px', cursor: 'pointer',
+                        }}
+                      >Select all</button>
+                      <button
+                        onClick={() => clearAllSubTypes(topic.slug)}
+                        style={{
+                          background: 'none', border: '1px solid var(--border)',
+                          borderRadius: '5px', padding: '3px 10px',
+                          color: 'var(--text-muted)', fontSize: '11px', cursor: 'pointer',
+                        }}
+                      >Clear all</button>
+                      {hasNoSubsSelected && (
+                        <span style={{ fontSize: '11px', color: 'var(--diff-hard)', marginLeft: '4px' }}>
+                          ⚠ No sub-types selected — this topic won&apos;t appear in your queue
+                        </span>
+                      )}
+                    </div>
+                    {/* Sub-type checkboxes */}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {subtypes.map(sub => {
+                        const checked = enabledSubs.includes(sub);
+                        return (
+                          <label
+                            key={sub}
+                            style={{
+                              display: 'flex', alignItems: 'center', gap: '5px',
+                              padding: '4px 10px',
+                              background: checked ? 'var(--accent-blue)15' : 'var(--bg-elevated)',
+                              border: `1px solid ${checked ? 'var(--accent-blue)44' : 'var(--border)'}`,
+                              borderRadius: '6px', cursor: 'pointer',
+                              fontSize: '12px',
+                              color: checked ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                              fontWeight: checked ? 600 : 400,
+                              transition: 'all 0.12s',
+                              userSelect: 'none',
+                            }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleSubType(topic.slug, sub)}
+                              style={{ width: '12px', height: '12px', accentColor: 'var(--accent-blue)', cursor: 'pointer' }}
+                            />
+                            {prettifySubtype(sub)}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
             );
           })}
         </div>

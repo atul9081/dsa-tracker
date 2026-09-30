@@ -118,6 +118,7 @@ interface QueueCfg {
   weightOverrides: Record<string, number>;
   cooldownDays: number;
   csesRatio: number | null;   // null = auto (proportional to pool sizes)
+  enabledSubTypes: Record<string, string[]> | null; // null = all sub-types eligible
 }
 
 /**
@@ -194,6 +195,7 @@ function resolveConfig(settings: UserSettings | null, modeOverride?: DiffMode, c
     weightOverrides: settings?.topic_weight_overrides ?? {},
     cooldownDays:    settings?.cooldown_days ?? 7,
     csesRatio:       settings?.cses_ratio ?? null,
+    enabledSubTypes: settings?.enabled_sub_type_slugs ?? null,
   };
 }
 
@@ -293,6 +295,7 @@ function threeStageSample(
   pool: ProblemWithStatus[],              // pre-filtered by difficulty
   count: number,
   enabledSlugs: string[] | null,
+  enabledSubTypes: Record<string, string[]> | null, // null = all sub-types eligible
   weightOverrides: Record<string, number>,
   stalenessMap: Record<string, number>,
   topicUsedCounts: Record<string, number>, // mutated in-place (shared across difficulty calls)
@@ -319,8 +322,17 @@ function threeStageSample(
   for (const p of eligible) {
     const topic      = getPrimaryTopic(p.topic_tags);
     const subtypeKey = getSubtypeKey(p);
-    if (!byTopicSubtype.has(topic))           byTopicSubtype.set(topic, new Map());
-    if (!byTopicSubtype.get(topic)!.has(subtypeKey)) byTopicSubtype.get(topic)!.set(subtypeKey, []);
+
+    // Sub-type filter: skip problems whose sub_type is not in the enabled allow-list.
+    // Only applies when the user has configured sub-type filters (enabledSubTypes != null)
+    // and when a filter is active for this specific topic.
+    if (enabledSubTypes && p.sub_type) {
+      const allowed = enabledSubTypes[topic];
+      if (allowed !== undefined && !allowed.includes(p.sub_type)) continue;
+    }
+
+    if (!byTopicSubtype.has(topic))                    byTopicSubtype.set(topic, new Map());
+    if (!byTopicSubtype.get(topic)!.has(subtypeKey))   byTopicSubtype.get(topic)!.set(subtypeKey, []);
     byTopicSubtype.get(topic)!.get(subtypeKey)!.push(p);
   }
 
@@ -485,9 +497,9 @@ async function generateQueue(
     const medium = pool.filter(p => p.difficulty === 'MEDIUM');
     const easy   = pool.filter(p => p.difficulty === 'EASY');
 
-    const hardPicked   = threeStageSample(hard,   hardC, cfg.enabledSlugs, cfg.weightOverrides, stalenessMap, topicUsedCounts, subtypeUsedSet, maxPerTopic);
-    const mediumPicked = threeStageSample(medium, medC,  cfg.enabledSlugs, cfg.weightOverrides, stalenessMap, topicUsedCounts, subtypeUsedSet, maxPerTopic);
-    const easyPicked   = threeStageSample(easy,   easyC, cfg.enabledSlugs, cfg.weightOverrides, stalenessMap, topicUsedCounts, subtypeUsedSet, maxPerTopic);
+    const hardPicked   = threeStageSample(hard,   hardC, cfg.enabledSlugs, cfg.enabledSubTypes, cfg.weightOverrides, stalenessMap, topicUsedCounts, subtypeUsedSet, maxPerTopic);
+    const mediumPicked = threeStageSample(medium, medC,  cfg.enabledSlugs, cfg.enabledSubTypes, cfg.weightOverrides, stalenessMap, topicUsedCounts, subtypeUsedSet, maxPerTopic);
+    const easyPicked   = threeStageSample(easy,   easyC, cfg.enabledSlugs, cfg.enabledSubTypes, cfg.weightOverrides, stalenessMap, topicUsedCounts, subtypeUsedSet, maxPerTopic);
 
     let picked = [...hardPicked, ...mediumPicked, ...easyPicked];
 
@@ -497,7 +509,7 @@ async function generateQueue(
       const remaining = pool.filter(p => !usedIds.has(p.id));
       const filler    = threeStageSample(
         remaining, totalSlots - picked.length,
-        cfg.enabledSlugs, cfg.weightOverrides, stalenessMap, topicUsedCounts, subtypeUsedSet, maxPerTopic
+        cfg.enabledSlugs, cfg.enabledSubTypes, cfg.weightOverrides, stalenessMap, topicUsedCounts, subtypeUsedSet, maxPerTopic
       );
       picked = [...picked, ...filler];
     }

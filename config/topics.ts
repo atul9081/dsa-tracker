@@ -29,3 +29,53 @@ export const OLT_TOPICS: OltTopic[] = [
 
 export const OLT_TOPIC_SLUGS = new Set(OLT_TOPICS.map(t => t.slug));
 export const TOPIC_SCORE_MAP = Object.fromEntries(OLT_TOPICS.map(t => [t.slug, t.score]));
+
+// ── Sub-type catalogue ────────────────────────────────────────────────────────
+// Derived from data/subtypes-final.json classification run.
+// Sub-types are dataset-level stable values — not user-generated.
+export const SUB_TYPES_BY_TOPIC: Record<string, string[]> = {
+  'array':                ['design', 'frequency-count', 'interval-scheduling', 'intervals', 'matrix', 'prefix-search', 'prefix-suffix', 'sequence-construction', 'sorting-tricks', 'two-sum-style'],
+  'backtracking':         ['backtracking-dfs', 'combinations', 'constraint-search', 'permutations'],
+  'binary-search':        ['boundary-search', 'classic-search', 'search-on-answer'],
+  'bit-manipulation':     ['counting-bits', 'subset-bitmask', 'xor-tricks'],
+  'breadth-first-search': ['grid-bfs', 'level-order', 'multi-source-bfs'],
+  'depth-first-search':   ['backtracking-dfs', 'cycle-detection', 'grid-dfs', 'tree-traversal'],
+  'dynamic-programming':  ['1d-dp', 'bitmask-dp', 'digit-dp', 'game-dp', 'interval-dp', 'knapsack', 'subsequences', 'tree-dp'],
+  'graph':                ['basic-connectivity', 'bfs', 'dfs', 'mst', 'scc', 'sssp', 'topological-sort'],
+  'greedy':               ['interval-scheduling', 'jump-game', 'sequence-construction'],
+  'hash-table':           ['design', 'frequency-count', 'pattern-matching', 'two-sum-style'],
+  'heap-priority-queue':  ['merge-streams', 'scheduling', 'top-k'],
+  'linked-list':          ['reversal', 'two-pointer-list'],
+  'sliding-window':       ['variable-size'],
+  'stack':                ['bracket-matching', 'calculator', 'monotonic-stack'],
+  'string':               ['anagram-sliding', 'palindromes', 'pattern-matching'],
+  'tree':                 ['bst', 'construction', 'lca', 'level-order', 'path-problems', 'segment-tree', 'top-k', 'traversal', 'tree-dp', 'tree-traversal'],
+  'trie':                 ['prefix-search'],
+  'two-pointers':         ['bracket-matching', 'fast-slow', 'merge-style', 'opposite-ends', 'two-pointer-list'],
+  'union-find':           ['basic-connectivity'],
+};
+
+// Acronyms and abbreviations that should stay uppercase
+const ACRONYMS = new Set(['dp', 'bfs', 'dfs', 'bst', 'lca', 'mst', 'scc', 'sssp', 'dsu']);
+
+/**
+ * Converts a sub-type slug to a human-readable label.
+ * e.g. 'two-sum-style' → 'Two Sum Style', '1d-dp' → '1D DP', 'bst' → 'BST'
+ */
+export function prettifySubtype(slug: string): string {
+  return slug
+    .split('-')
+    .map(word => {
+      const lower = word.toLowerCase();
+      if (ACRONYMS.has(lower)) return lower.toUpperCase();
+      // Handle leading digit prefixes: '1d' → '1D', '2d' → '2D'
+      const digitPrefix = lower.match(/^(\d+)([a-z]+)$/);
+      if (digitPrefix) {
+        const suffix = digitPrefix[2];
+        return digitPrefix[1] + (ACRONYMS.has(suffix) ? suffix.toUpperCase() : suffix.charAt(0).toUpperCase() + suffix.slice(1));
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1);
+    })
+    .join(' ');
+}
+
