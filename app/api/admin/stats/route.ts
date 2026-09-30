@@ -41,28 +41,33 @@ export async function GET() {
 
   const userIds = accessRows.map(r => r.user_id);
 
-  // Solved counts per user
-  const { data: progress } = await adminSupabase
+  // Join problems to get topic_tags (topic_tags is on problems, not user_progress)
+  const { data: progress, error: progErr } = await adminSupabase
     .from('user_progress')
-    .select('user_id, status, topic_tags, updated_at')
+    .select('user_id, status, updated_at, problems(topic_tags)')
     .in('user_id', userIds);
 
+  if (progErr) console.error('[admin/stats] user_progress query error:', progErr.message);
+
   // Queue generation counts per user
-  const { data: queues } = await adminSupabase
+  const { data: queues, error: qErr } = await adminSupabase
     .from('queue_history')
     .select('user_id')
     .in('user_id', userIds);
 
+  if (qErr) console.error('[admin/stats] queue_history query error:', qErr.message);
+
   // Aggregate per user
   const stats = accessRows.map(user => {
     const userProgress = (progress ?? []).filter(p => p.user_id === user.user_id);
-    const solved = userProgress.filter(p => p.status === 'SOLVED');
+    const solved    = userProgress.filter(p => p.status === 'SOLVED');
     const attempting = userProgress.filter(p => p.status === 'ATTEMPTING');
 
-    // Top topics from solved problems
+    // Top topics from solved problems — topic_tags via joined problems row
     const topicCounts: Record<string, number> = {};
     for (const p of solved) {
-      const tags: string[] = p.topic_tags ?? [];
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const tags: string[] = (p as any).problems?.topic_tags ?? [];
       if (tags[0]) topicCounts[tags[0]] = (topicCounts[tags[0]] ?? 0) + 1;
     }
     const topTopics = Object.entries(topicCounts)
@@ -88,6 +93,7 @@ export async function GET() {
       last_active:      lastActive,
     };
   });
+
 
   return NextResponse.json({ stats });
 }
