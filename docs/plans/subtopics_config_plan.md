@@ -6,14 +6,18 @@ Currently DSA Tracker lets you enable/disable full **topics** (e.g. Arrays, DP, 
 This plan adds a second level: **sub-topics** within each enabled topic
 (e.g. within DP: `knapsack`, `1d-dp`, `interval-dp`, …).
 
-### Why some problems still have `sub_type = null`
+### DB classification status — confirmed ✅
 
-`data/subtypes-final.json` contains **pattern definitions** (oltTopic + subtype name),
-not per-problem assignments. A classification script matched each problem's title/tags
-against these patterns. Problems that could not be matched confidently kept `sub_type = NULL`.
-These are "unclassified" at the sub-type level — they are a known limitation to fix later
-(see Backlog at bottom). For now the queue gives them `__solo_${id}__` buckets so they
-can still appear but bypass sub-type staleness grouping.
+Verified via Supabase SQL (`SELECT COUNT(*) FROM problems WHERE sub_type IS NULL`):
+
+| Source | Total | `sub_type = NULL` |
+|---|---|---|
+| leetcode | 1,760 | **0** |
+| cses | 161 | **0** |
+
+**All 1,921 problems are classified.** The `__solo_${id}__` bucket logic in the queue engine
+still exists for safety but will never be triggered in practice. The Q1/Q4 concerns about
+unclassified problems appearing through sub-type filters are a **non-issue**.
 
 ### Full sub-type catalogue (19 topics, ~65 named sub-types)
 
@@ -233,7 +237,7 @@ that unclassified DP problems also don't appear (per Q1).
 
 ---
 
-## Backlog (related, not blocking this feature)
+
 
 - **Classify remaining `sub_type = null` problems** — run a more aggressive classification
   pass (or manual tagging) so that the Q1 "exclude unclassified when filter active" rule
