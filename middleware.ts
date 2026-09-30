@@ -1,3 +1,4 @@
+import { createClient } from '@supabase/supabase-js';
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
@@ -46,18 +47,41 @@ export async function middleware(request: NextRequest) {
   if (user && !isPublic && !pathname.startsWith('/api/')) {
     const { data: access } = await supabase
       .from('user_access')
-      .select('granted')
+      .select('granted, is_admin')
       .eq('user_id', user.id)
       .single();
 
     // No row = brand-new user (trigger may not have committed yet) → treat as not granted.
     // Row with granted=false → not yet approved.
-    // Only pass through if row exists AND granted=true.
-    const isGranted = access?.granted === true;
+    // Only pass through if row exists AND granted=true (or is_admin=true).
+    const isGranted = access?.granted === true || access?.is_admin === true;
     if (!isGranted) {
       const waitingUrl = request.nextUrl.clone();
       waitingUrl.pathname = '/waiting';
       return NextResponse.redirect(waitingUrl);
+    }
+
+    // 3. /admin route — requires is_admin = true
+    if (pathname.startsWith('/admin')) {
+      if (!access?.is_admin) {
+        // Check via service role for accuracy (in case anon client cache is stale)
+        const adminClient = createClient(
+          process.env.NEXT_PUBLIC_SUPABASE_URL!,
+          process.env.SUPABASE_SERVICE_ROLE_KEY!,
+          { auth: { persistSession: false } }
+        );
+        const { data: adminAccess } = await adminClient
+          .from('user_access')
+          .select('is_admin')
+          .eq('user_id', user.id)
+          .single();
+
+        if (!adminAccess?.is_admin) {
+          const homeUrl = request.nextUrl.clone();
+          homeUrl.pathname = '/';
+          return NextResponse.redirect(homeUrl);
+        }
+      }
     }
   }
 
@@ -69,3 +93,4 @@ export const config = {
     '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
   ],
 };
+

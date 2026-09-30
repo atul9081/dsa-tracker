@@ -104,7 +104,42 @@ export default function LoginPage() {
       alignItems: 'center',
       justifyContent: 'center',
       padding: '24px',
+      gap: '60px',
+      flexWrap: 'wrap',
     }}>
+
+      {/* Left — landing info */}
+      <div style={{ maxWidth: '360px', flex: '1 1 280px' }} className="fade-in">
+        <div style={{ fontSize: '36px', marginBottom: '12px' }}>⚡</div>
+        <h1 style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 10px', lineHeight: 1.2 }}>
+          DSA Tracker
+        </h1>
+        <p style={{ fontSize: '15px', color: 'var(--text-secondary)', margin: '0 0 24px', lineHeight: 1.6 }}>
+          Blind-mode DSA practice built for OLT prep.
+          Problems are served without context — just like the real exam.
+        </p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '28px' }}>
+          {[
+            ['🎯', 'Daily queue', 'Curated problems across topics you choose, served fresh every day'],
+            ['🔒', 'Blind mode', 'Title and topic hidden until you decide to reveal — honest practice'],
+            ['📊', 'Progress tracking', 'Staleness-aware scheduling surfaces what you haven\'t touched recently'],
+          ].map(([icon, title, desc]) => (
+            <div key={title} style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}>
+              <span style={{ fontSize: '18px', flexShrink: 0, marginTop: '2px' }}>{icon}</span>
+              <div>
+                <div style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>{title}</div>
+                <div style={{ fontSize: '12px', color: 'var(--text-muted)', lineHeight: 1.5 }}>{desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p style={{ fontSize: '12px', color: 'var(--text-muted)', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+          🔐 Access is invite-only. Sign up and request access, or ask for an invite link.
+        </p>
+      </div>
+
+      {/* Right — auth card */}
+
       <div style={{
         width: '100%',
         maxWidth: '400px',
