@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { OLT_TOPICS, SUB_TYPES_BY_TOPIC, prettifySubtype } from '@/config/topics';
 import type { UserSettings } from '@/types';
@@ -71,6 +71,10 @@ export default function SettingsPage() {
   const [saved, setSaved]       = useState(false);
   const [regen, setRegen]       = useState(false);
 
+  // Track the last-saved sub-type state so the reset button reverts to it
+  // (not to null/all-enabled, but to whatever was saved in the DB)
+  const savedSubTypes = useRef<Record<string, string[]> | null>(null);
+
   // Derive enabled slugs state: null = all enabled, array = specific set
   // We treat null as "all checkboxes on"
   const allEnabled = settings.enabled_topic_slugs === null;
@@ -134,7 +138,11 @@ export default function SettingsPage() {
       try {
         const res = await fetch('/api/settings');
         const data = await res.json();
-        if (data.settings) setSettings(data.settings);
+        if (data.settings) {
+          setSettings(data.settings);
+          // Capture the DB state as the reset target
+          savedSubTypes.current = data.settings.enabled_sub_type_slugs ?? null;
+        }
       } catch (e) {
         console.error(e);
       } finally {
@@ -208,13 +216,19 @@ export default function SettingsPage() {
 
   const handleSave = async () => {
     const ok = await save();
-    if (ok) { setSaved(true); setTimeout(() => setSaved(false), 2000); }
+    if (ok) {
+      // Update the reset target to the just-saved state
+      savedSubTypes.current = settings.enabled_sub_type_slugs ?? null;
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
   };
 
   const handleSaveAndRegen = async () => {
     setRegen(true);
     const ok = await save();
     if (ok) {
+      savedSubTypes.current = settings.enabled_sub_type_slugs ?? null;
       await fetch('/api/queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -503,22 +517,28 @@ export default function SettingsPage() {
           <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center', marginLeft: '4px' }}>
             {allEnabled ? OLT_TOPICS.length : enabledSet.size} / {OLT_TOPICS.length} selected
           </span>
-          {enabledSubTypes && Object.keys(enabledSubTypes).length > 0 && (
-            <>
-              <span style={{ color: 'var(--border)', fontSize: '12px' }}>|</span>
-              <button
-                onClick={() => setSettings(s => ({ ...s, enabled_sub_type_slugs: null }))}
-                title="Clear all sub-type filters and restore defaults"
-                style={{
-                  background: 'none', border: '1px solid var(--diff-hard)55',
-                  borderRadius: '6px', padding: '5px 12px',
-                  color: 'var(--diff-hard)', fontSize: '12px', cursor: 'pointer',
-                }}
-              >
-                ↺ Reset sub-type filters
-              </button>
-            </>
-          )}
+          {/* Reset sub-type filters — only visible when current state differs from saved state */}
+          {(() => {
+            const currentStr = JSON.stringify(enabledSubTypes ?? null);
+            const savedStr   = JSON.stringify(savedSubTypes.current ?? null);
+            const isDirty    = currentStr !== savedStr;
+            return isDirty ? (
+              <>
+                <span style={{ color: 'var(--border)', fontSize: '12px' }}>|</span>
+                <button
+                  onClick={() => setSettings(s => ({ ...s, enabled_sub_type_slugs: savedSubTypes.current }))}
+                  title="Undo sub-type changes — revert to last saved state"
+                  style={{
+                    background: 'none', border: '1px solid var(--diff-hard)55',
+                    borderRadius: '6px', padding: '5px 12px',
+                    color: 'var(--diff-hard)', fontSize: '12px', cursor: 'pointer',
+                  }}
+                >
+                  ↺ Reset sub-type filters
+                </button>
+              </>
+            ) : null;
+          })()}
         </div>
 
 
