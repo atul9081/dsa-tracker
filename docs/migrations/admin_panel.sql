@@ -17,12 +17,17 @@ UPDATE user_access
       email    = 'vedant.dev.jsr@gmail.com'
   WHERE user_id = '132f68cd-86c4-4995-8235-8ab3013940a4';
 
--- 3. Populate emails for all existing rows from auth.users
+-- 3. Populate emails + display_name for all existing rows from auth.users
+--    (uses user_id join, not email IS NULL — avoids skipping admin row set in step 2)
 UPDATE user_access ua
-  SET email        = u.email,
-      display_name = COALESCE(u.raw_user_meta_data->>'full_name', u.raw_user_meta_data->>'name')
+  SET email        = COALESCE(ua.email, u.email),
+      display_name = COALESCE(
+        ua.display_name,
+        u.raw_user_meta_data->>'full_name',
+        u.raw_user_meta_data->>'name'
+      )
   FROM auth.users u
-  WHERE ua.user_id = u.id AND ua.email IS NULL;
+  WHERE ua.user_id = u.id;
 
 -- 4. Update trigger to capture email + display_name on new user signup
 CREATE OR REPLACE FUNCTION handle_new_user_access()
