@@ -17,6 +17,7 @@ export default function Navbar() {
   const pathname    = usePathname();
   const router      = useRouter();
   const [email, setEmail]           = useState<string | null>(null);
+  const [isAdmin, setIsAdmin]       = useState(false);
   const [signingOut, setSigningOut] = useState(false);
   const [menuOpen, setMenuOpen]     = useState(false);
 
@@ -26,8 +27,16 @@ export default function Navbar() {
   );
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getUser().then(async ({ data: { user } }) => {
       setEmail(user?.email ?? null);
+      if (user) {
+        const { data } = await supabase
+          .from('user_access')
+          .select('is_admin')
+          .eq('user_id', user.id)
+          .single();
+        setIsAdmin(data?.is_admin === true);
+      }
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -65,8 +74,8 @@ export default function Navbar() {
 
           {/* Desktop nav links */}
           <div className="nav-links-desktop" style={{ display: 'flex', gap: '4px' }}>
-            {NAV_LINKS.map(({ href, label }) => {
-              const active = pathname === href;
+            {[...NAV_LINKS, ...(isAdmin ? [{ href: '/admin', label: '🛡 Admin' }] : [])].map(({ href, label }) => {
+              const active = pathname === href || pathname.startsWith(href + '/');
               return (
                 <Link
                   key={href}
@@ -77,12 +86,12 @@ export default function Navbar() {
                     borderRadius: '8px',
                     fontSize: '14px',
                     fontWeight: active ? 600 : 500,
-                    color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                    color: active ? 'var(--text-primary)' : href === '/admin' ? 'var(--accent-yellow)' : 'var(--text-secondary)',
                     background: active ? 'var(--bg-elevated)' : 'transparent',
                     transition: 'all 0.15s',
                   }}
-                  onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.color = 'var(--text-primary)'; }}
-                  onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.color = 'var(--text-secondary)'; }}
+                  onMouseEnter={e => { if (!active) (e.currentTarget as HTMLElement).style.color = href === '/admin' ? 'var(--accent-yellow)' : 'var(--text-primary)'; }}
+                  onMouseLeave={e => { if (!active) (e.currentTarget as HTMLElement).style.color = href === '/admin' ? 'var(--accent-yellow)' : 'var(--text-secondary)'; }}
                 >
                   {label}
                 </Link>
@@ -173,8 +182,8 @@ export default function Navbar() {
             gap: '8px',
           }}
         >
-          {NAV_LINKS.map(({ href, label }) => {
-            const active = pathname === href;
+          {[...NAV_LINKS, ...(isAdmin ? [{ href: '/admin', label: '🛡 Admin' }] : [])].map(({ href, label }) => {
+            const active = pathname === href || pathname.startsWith(href + '/');
             return (
               <Link
                 key={href}
@@ -185,7 +194,7 @@ export default function Navbar() {
                   borderRadius: '10px',
                   fontSize: '16px',
                   fontWeight: active ? 700 : 500,
-                  color: active ? 'var(--text-primary)' : 'var(--text-secondary)',
+                  color: active ? 'var(--text-primary)' : href === '/admin' ? 'var(--accent-yellow)' : 'var(--text-secondary)',
                   background: active ? 'var(--bg-elevated)' : 'transparent',
                   border: `1px solid ${active ? 'var(--border)' : 'transparent'}`,
                 }}
