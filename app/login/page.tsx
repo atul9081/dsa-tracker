@@ -133,6 +133,21 @@ export default function LoginPage() {
             </div>
           ))}
         </div>
+
+        {/* Queue algo callout */}
+        <div style={{
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border)',
+          borderRadius: '8px',
+          padding: '12px 14px',
+          marginBottom: '4px',
+        }}>
+          <p style={{ fontSize: '12px', color: 'var(--text-muted)', margin: 0, lineHeight: 1.65 }}>
+            <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>How the queue thinks — </span>
+            Avoids problems you've recently solved, balances hard/medium/easy by your preset, caps repeats per topic, and surfaces sub-types you haven't touched in a while — all without you configuring anything.
+          </p>
+        </div>
+
         <p style={{ fontSize: '12px', color: 'var(--text-muted)', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
           🔐 Access is invite-only. Sign up and request access, or ask for an invite link.
         </p>
