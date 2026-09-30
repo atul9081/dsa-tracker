@@ -1,205 +1,283 @@
 # Admin Panel — Design Plan
 
+**Status:** Decisions locked. Ready for implementation.
+
 ## Background
 
 DSA Tracker is currently invite-only with a manual whitelist (`user_access` table).
 Granting access requires a direct Supabase SQL update.
-This plan adds a `/admin` route for real-time access management, user analytics,
-and an optional landing page for new users to request access.
 
-## Scope
+This plan adds:
+1. **`/admin`** — real-time access management + analytics dashboard (you only)
+2. **`/`** — public landing page (before login), shows what the site is + waitlist form
+3. Routing change: daily queue moves `/` → `/home`
 
-1. **Access Management** — view all users, grant/revoke access, approve pending requests
-2. **User Analytics** — solve rates, queue usage, activity per user
-3. **Landing Page** — public-facing page where new users can request access
-4. **Security** — admin route locked to specific user IDs, zero exposure to regular users
+---
+
+## Decisions Log
+
+| # | Question | Decision |
+|---|---|---|
+| Q1 | Multiple admins? | `is_admin BOOLEAN` column on `user_access` — DB-driven, not hardcoded |
+| Q2 | User add flow | Option C — pre-approve by email AND approve pending sign-ups |
+| Q3 | Landing page route | `/` = public landing page; daily queue moves to `/home` |
+| Q4 | Analytics scope | Medium — solved count, queues generated, topics distribution, last active |
+| Q5 | Email notification | No — admin panel is enough |
+| Q6 | Revoke behaviour | Kicked on next page load (middleware re-checks on every request) |
 
 ---
 
 ## Current DB State
 
 ```sql
--- user_access table (already exists from Phase 4)
+-- Exists from Phase 4
 CREATE TABLE user_access (
   user_id    UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
   granted    BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-
--- auth.users is Supabase-managed (email, created_at, last_sign_in_at, etc.)
 ```
-
-Missing fields for this plan:
-- `display_name TEXT` or `email TEXT` on `user_access` (to show who is who without joining auth.users which requires service role)
-- `requested_at TIMESTAMPTZ` — when they signed up / requested access
-- `notes TEXT` — admin notes per user (optional)
 
 ---
 
 ## DB Migration
 
-> ⚠️ Additive only — no existing columns modified.
+> ⚠️ Additive only — no existing columns or rows modified.
 
 ```sql
--- 1. Add metadata to user_access for easier admin display
+-- 1. Extend user_access with admin flag + display metadata
 ALTER TABLE user_access
-  ADD COLUMN IF NOT EXISTS email       TEXT DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ DEFAULT NOW(),
-  ADD COLUMN IF NOT EXISTS admin_notes  TEXT DEFAULT NULL;
+  ADD COLUMN IF NOT EXISTS is_admin      BOOLEAN     NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS email         TEXT        DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS display_name  TEXT        DEFAULT NULL,
+  ADD COLUMN IF NOT EXISTS requested_at  TIMESTAMPTZ DEFAULT NOW(),
+  ADD COLUMN IF NOT EXISTS admin_notes   TEXT        DEFAULT NULL;
 
--- 2. Populate email from auth.users for existing rows (run once, service role)
+-- 2. Mark yourself as admin (run once)
+UPDATE user_access
+  SET is_admin = true, email = 'vedant.dev.jsr@gmail.com'
+  WHERE user_id = '132f68cd-86c4-4995-8235-8ab3013940a4';
+
+-- 3. Populate emails for all existing rows from auth.users (service role, run once)
 -- UPDATE user_access ua
--- SET email = u.email
--- FROM auth.users u
--- WHERE ua.user_id = u.id AND ua.email IS NULL;
+--   SET email = u.email, display_name = u.raw_user_meta_data->>'full_name'
+--   FROM auth.users u
+--   WHERE ua.user_id = u.id AND ua.email IS NULL;
 
--- 3. Auto-populate email on new user signup (extend existing trigger)
--- (Update handle_new_user_access function to also read email from NEW record)
+-- 4. Extend the new-user trigger to capture email + name on signup
+-- (update handle_new_user_access function — see Phase 1)
+```
+
+**Verify after migration:**
+```sql
+SELECT user_id, email, is_admin, granted FROM user_access;
 ```
 
 ---
 
 ## Security Model
 
-Admin check is **dual-layered**:
+Admin check uses the DB `is_admin` field, dual-layered:
 
-**Layer 1 — Middleware** (server-side, before any page render):
+**Layer 1 — Middleware** (server-side, blocks page render):
 ```typescript
-// middleware.ts — add /admin to protected routes
-const ADMIN_USER_IDS = new Set([
-  '132f68cd-86c4-4995-8235-8ab3013940a4', // vedant.dev.jsr@gmail.com
-]);
-
+// middleware.ts
 if (pathname.startsWith('/admin')) {
   const userId = session?.user?.id;
-  if (!userId || !ADMIN_USER_IDS.has(userId)) {
-    return NextResponse.redirect(new URL('/', req.url));
-  }
+  if (!userId) return NextResponse.redirect(new URL('/login', req.url));
+
+  // Check is_admin from user_access via service role
+  const { data } = await adminSupabase
+    .from('user_access')
+    .select('is_admin')
+    .eq('user_id', userId)
+    .single();
+
+  if (!data?.is_admin) return NextResponse.redirect(new URL('/', req.url));
 }
 ```
 
 **Layer 2 — API routes** (`/api/admin/*`):
-- All admin API routes verify `userId` against `ADMIN_USER_IDS` before any DB operation
-- Uses service role key (already in env) to bypass RLS for cross-user reads
+- All routes re-check `is_admin` from DB using service role before any operation
+- Service role key already in env (`SUPABASE_SERVICE_ROLE_KEY`)
+
+---
+
+## Routing Changes
+
+| Before | After | Notes |
+|---|---|---|
+| `/` | → `/home` | Daily queue (authenticated) |
+| `/` | Landing page | Public, no auth required |
+| (new) | `/admin` | Admin dashboard (is_admin = true only) |
+| `/login` | `/login` | Unchanged |
+
+**Files to update for routing:**
+- `app/page.tsx` → move to `app/home/page.tsx`
+- `middleware.ts` → update redirect targets (`/` → `/home` for authenticated users)
+- `components/Navbar.tsx` → update Home link to `/home`
+- All internal `router.push('/')` calls → `router.push('/home')`
 
 ---
 
 ## Implementation Phases
 
-### Phase 1 — Admin API (~20 min)
+### Phase 1 — DB Migration + Trigger Update (~15 min)
 
-**`app/api/admin/users/route.ts`** — GET all users with access status:
-```typescript
-// Returns: [{ user_id, email, granted, requested_at, last_sign_in, admin_notes }]
-// Uses service role key to read auth.users + user_access
+Run migration SQL above. Then update the Supabase trigger `handle_new_user_access` to
+capture email and display_name on new user signup:
+
+```sql
+CREATE OR REPLACE FUNCTION handle_new_user_access()
+RETURNS TRIGGER AS $$
+BEGIN
+  INSERT INTO user_access (user_id, granted, email, display_name)
+  VALUES (
+    NEW.id,
+    false,
+    NEW.email,
+    COALESCE(NEW.raw_user_meta_data->>'full_name', NEW.raw_user_meta_data->>'name', NULL)
+  )
+  ON CONFLICT (user_id) DO NOTHING;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 ```
 
-**`app/api/admin/users/[userId]/route.ts`** — PATCH grant/revoke/notes:
+### Phase 2 — Routing Refactor (~20 min)
+
+1. Move `app/page.tsx` → `app/home/page.tsx`
+2. Update `middleware.ts`:
+   - Authenticated users with access → `/home` (not `/`)
+   - `/` → public, no redirect
+3. Update all internal navigation (`router.push('/')` → `router.push('/home')`)
+4. Update Navbar Home link
+
+### Phase 3 — Admin API (~25 min)
+
+**`app/api/admin/users/route.ts`** — GET list + POST pre-approve:
 ```typescript
-// PATCH { granted: true }   → grant access
-// PATCH { granted: false }  → revoke access
-// PATCH { admin_notes: "..." } → add note
+// GET → [{ user_id, email, display_name, granted, is_admin, requested_at, admin_notes, last_sign_in }]
+// POST { email } → pre-approve: INSERT INTO user_access (email, granted=true) for pre-signup
 ```
 
-**`app/api/admin/stats/route.ts`** — GET aggregate analytics:
+**`app/api/admin/users/[userId]/route.ts`** — PATCH per-user actions:
 ```typescript
-// Returns per-user: { user_id, total_solved, queues_generated, last_active }
-// Joins user_progress + queue_history
+// PATCH { granted: true | false }   → grant or revoke access
+// PATCH { is_admin: true | false }  → promote or demote admin
+// PATCH { admin_notes: string }     → save admin note
 ```
 
-### Phase 2 — Admin UI (~45 min)
+**`app/api/admin/stats/route.ts`** — GET analytics:
+```typescript
+// Returns per-user:
+// {
+//   user_id, email, display_name,
+//   total_solved,        ← COUNT from user_progress WHERE status = 'SOLVED'
+//   total_attempting,    ← COUNT WHERE status = 'ATTEMPTING'
+//   queues_generated,    ← COUNT from queue_history
+//   topics_solved,       ← { topic: count } map (top 5)
+//   last_active,         ← MAX(updated_at) from user_progress
+// }
+```
 
-**`app/admin/page.tsx`** — two tabs:
+### Phase 4 — Admin UI (~60 min)
+
+**`app/admin/page.tsx`** — two tabs, premium dark design.
 
 #### Tab 1: Users
+
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│ Users                                          [+ Add by email]  │
-├──────────────────┬──────────┬──────────┬───────────┬───────────┤
-│ Email            │ Status   │ Joined   │ Last seen │ Actions   │
-├──────────────────┼──────────┼──────────┼───────────┼───────────┤
-│ vedant@...       │ ✅ Admin  │ Sep 2026 │ Today     │ —         │
-│ friend@...       │ ✅ Access │ Oct 2026 │ 2d ago    │ [Revoke]  │
-│ pending@...      │ ⏳ Pending│ Oct 2026 │ Never     │ [Grant] [✕]│
-└──────────────────┴──────────┴──────────┴───────────┴───────────┘
+┌──────────────────────────────────────────────────────────────────────┐
+│  🛡 Users                                        [+ Pre-approve email] │
+├────────────────┬──────────┬──────────┬──────────┬────────┬──────────┤
+│ Name / Email   │ Status   │ Joined   │ Last seen│ Notes  │ Actions  │
+├────────────────┼──────────┼──────────┼──────────┼────────┼──────────┤
+│ Vedant         │ 👑 Admin  │ Sep 2026 │ Now      │  —     │  —       │
+│ vedant@...     │          │          │          │        │          │
+├────────────────┼──────────┼──────────┼──────────┼────────┼──────────┤
+│ Friend Name    │ ✅ Access │ Oct 2026 │ 2d ago   │ 📝     │ [Revoke] │
+│ friend@...     │          │          │          │        │          │
+├────────────────┼──────────┼──────────┼──────────┼────────┼──────────┤
+│ Waiting User   │ ⏳ Pending│ Oct 2026 │ Never    │  —     │ [Grant][✕]│
+│ waiting@...    │          │          │          │        │          │
+└────────────────┴──────────┴──────────┴──────────┴────────┴──────────┘
 ```
 
-- **Grant / Revoke** — instant toggle with confirmation
-- **Add by email** — enter email → creates `user_access` row with `granted: true` pre-set
-  (user signs up → trigger creates their row → already granted)
-- **Notes** — click to add a private admin note
+Actions:
+- **Grant** / **Revoke** — instant DB update, badge updates in place
+- **✕** — delete pending user (they can re-sign-up; doesn't delete auth account)
+- **📝** — inline note editor (click to expand, save on blur)
+- **+ Pre-approve** — modal: enter email → row created with `granted: true, email`
+- **Promote / Demote admin** — available via row action on non-admin users
 
 #### Tab 2: Analytics
+
 ```
-┌──────────────────┬───────────┬────────────┬───────────┬──────────┐
-│ User             │ Solved    │ Attempting │ Queues    │ Last seen│
-├──────────────────┼───────────┼────────────┼───────────┼──────────┤
-│ vedant@...       │ 142       │ 3          │ 31        │ Today    │
-│ friend@...       │ 28        │ 1          │ 7         │ 2d ago   │
-└──────────────────┴───────────┴────────────┴───────────┴──────────┘
+┌──────────────┬────────┬───────────┬────────┬─────────────┬──────────┐
+│ User         │ Solved │ Attempting│ Queues │ Top topics  │ Last seen│
+├──────────────┼────────┼───────────┼────────┼─────────────┼──────────┤
+│ Vedant       │  142   │     3     │   31   │ DP, Graph   │ Now      │
+│ Friend       │   28   │     1     │    7   │ Arrays, BFS │ 2d ago   │
+└──────────────┴────────┴───────────┴────────┴─────────────┴──────────┘
 ```
 
-### Phase 3 — Landing Page (~30 min)
+### Phase 5 — Landing Page (~45 min)
 
-**`app/(landing)/page.tsx`** — public page at `/` (or `/welcome`):
+**`app/page.tsx`** (public, no auth wrapper):
 
-- What DSA Tracker is (1 paragraph)
-- Screenshot or demo GIF
-- "Request Access" form → email input → creates a `user_access` row with `granted: false`
-- Confirmation: "You'll get access once approved. Contact: intruderjsr@duck.com"
+Sections:
+1. **Hero** — name, tagline ("Blind-mode DSA practice. Built for OLT prep."), CTA buttons
+2. **How it works** — 3 cards: Queue → Reveal → Solve
+3. **Waitlist / Access form** — "Request Access" → email input → `POST /api/waitlist`
+   - If user already has an account: show "You're on the waitlist. We'll notify you."
+   - If already granted: "You're in! [Log in →]"
+4. **Footer** — contact email, GitHub link (if public)
 
-Currently `/` is probably the queue page (behind auth). Decision needed: keep `/` gated or make it the landing page (see Q3).
+**`app/api/waitlist/route.ts`** (public, no auth):
+```typescript
+// POST { email } → INSERT INTO user_access (email, granted=false, requested_at=NOW())
+// ON CONFLICT (email) DO NOTHING  ← needs unique index on email
+// Returns: { status: 'pending' | 'already_granted' | 'already_pending' }
+```
 
-### Phase 4 — Email notification (optional, ~20 min)
+Note: `user_access` is keyed by `user_id` (UUID), not email. Pre-signup waitlist entries
+need a separate `waitlist` table keyed by email, then matched to `user_id` on signup.
 
-When a new user requests access, send a notification email to admin via Resend/Supabase Email:
-- "New access request from user@example.com — approve at dsa-tracker.vercel.app/admin"
+**Alternative (simpler):** Just show the existing login/signup page as the landing, with
+a "learn more" section above the auth form. No routing change needed. (See Q7.)
 
 ---
 
-## Nothing-breaks guarantees
+## Nothing-Breaks Guarantees
 
 | Scenario | Outcome |
 |---|---|
-| Non-admin visits `/admin` | Middleware redirects to `/` before page renders |
-| Admin API called without valid session | 401 returned before any DB query |
-| Service role key missing | Admin API returns 500 (non-admin users unaffected) |
-| `user_access` email column missing (migration not run) | Display falls back to user_id (existing data safe) |
-| Grant/revoke fails mid-request | DB transaction rolled back, UI shows error |
-| Landing page form submitted twice | `ON CONFLICT (user_id) DO NOTHING` prevents duplicate rows |
+| Non-admin visits `/admin` | Middleware checks DB, redirects to `/` |
+| Admin API called without session | 401 before any DB query |
+| Service role key missing | Admin routes return 500; regular users unaffected |
+| Migration not run yet | `is_admin` column missing → admin check falls back to hardcoded ID list (add fallback in middleware) |
+| `/home` not found after routing change | All internal links updated in same PR; no broken links |
+| Email column null (old user) | Display falls back to `user_id` truncated |
+| Revoke mid-session | Middleware re-checks `granted` on every request → kicked on next navigation |
+| Double waitlist submit | `ON CONFLICT DO NOTHING` on waitlist table |
 
 ---
 
 ## Open Questions
 
-> Please edit/answer — I'll implement to your answers.
+**Q7. Landing page complexity — simple or full?**
+Option A *(simple)*: `/` = existing auth page with a "What is DSA Tracker?" section above login.
+Zero routing change, no new `app/page.tsx`. Fast to ship.
+Option B *(full)*: Dedicated landing page at `/`, queue moves to `/home`. More work (~1h extra).
 
-**Q1. Multiple admins?**
-Should only your account be admin, or should there be a way to promote other users to admin?
-Proposal: hardcode your user ID in `middleware.ts` — simple, secure, no DB field needed.
+Recommendation: **Option A first** — get admin panel live, landing page is a nice-to-have.
+Can upgrade to Option B later when you want to make it public.
 
-**Q2. Add user flow — before or after signup?**
-Option A: Admin enters email → user signs up later → already has `granted: true` row waiting.
-Option B: User signs up first (gets `granted: false`) → admin approves from panel.
-Option C: Both — admin can pre-approve emails AND approve pending sign-ups.
-Proposal: Option C.
-
-**Q3. Landing page at `/` or `/welcome`?**
-If landing page goes at `/`, the current `/` (daily queue) would move to `/home` or `/queue`.
-This is a significant routing change. Alternatively, keep `/` gated and put landing at `/welcome`
-(public, no auth required). Which do you prefer?
-
-**Q4. Analytics scope for now?**
-What per-user stats do you want? Options:
-- Minimal: solved count, last active date
-- Medium: + queues generated, topics distribution (which topics solved most)
-- Full: + daily streaks, sub-type breakdown, difficulty split
-
-**Q5. Email notifications?**
-Should you get an email when someone requests access, or is checking the admin panel manually fine?
-If email: which provider? (Supabase has built-in email, or Resend is easy to add)
-
-**Q6. Revoke behaviour?**
-If you revoke access mid-session, should that user be immediately signed out,
-or can they finish their current session (kicked on next page load / token refresh)?
-Proposal: kicked on next page load (middleware re-checks on every request).
+**Q8. Waitlist table vs. email on user_access?**
+If someone fills the waitlist form before signing up, we can't use `user_id` (they don't have one yet).
+Options:
+- Separate `waitlist(email, requested_at)` table — matched to user_id on first login
+- Just use the existing login flow and let them sign up → pending → admin approves
+Proposal: skip the pre-signup waitlist for now. User signs up → pending → you grant from admin panel.
+The "Request Access" button on landing = just the Supabase sign-up link.
