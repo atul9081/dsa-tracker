@@ -82,11 +82,31 @@ function getSubtypeKey(p: ProblemWithStatus): string {
 
 type DiffMode = 'chill' | 'standard' | 'grind' | 'custom';
 
-const MODE_PRESETS: Record<Exclude<DiffMode, 'custom'>, { hard: number; medium: number; easy: number }> = {
-  chill:    { hard: 0, medium: 3, easy: 2 },
-  standard: { hard: 2, medium: 3, easy: 0 },
-  grind:    { hard: 3, medium: 2, easy: 0 },
+// Per-count, per-mode preset distributions (hand-crafted by user for 3/5/7 problems/day).
+// For counts not listed, the nearest entry is used and the remainder absorbed proportionally.
+const PRESET_DISTRIBUTIONS: Record<
+  Exclude<DiffMode, 'custom'>,
+  Record<number, { hard: number; medium: number; easy: number }>
+> = {
+  chill:    { 3: { hard: 0, medium: 2, easy: 1 }, 5: { hard: 0, medium: 2, easy: 3 }, 7: { hard: 0, medium: 4, easy: 3 } },
+  standard: { 3: { hard: 1, medium: 2, easy: 0 }, 5: { hard: 1, medium: 3, easy: 1 }, 7: { hard: 2, medium: 3, easy: 2 } },
+  grind:    { 3: { hard: 2, medium: 1, easy: 0 }, 5: { hard: 2, medium: 3, easy: 0 }, 7: { hard: 3, medium: 4, easy: 0 } },
 };
+
+/** Finds the nearest defined count in PRESET_DISTRIBUTIONS, then scales to `target`. */
+function resolvePreset(mode: Exclude<DiffMode, 'custom'>, target: number): { hard: number; medium: number; easy: number } {
+  const table   = PRESET_DISTRIBUTIONS[mode];
+  const counts  = Object.keys(table).map(Number).sort((a, b) => a - b);
+  // Pick the nearest defined count
+  const nearest = counts.reduce((prev, cur) =>
+    Math.abs(cur - target) < Math.abs(prev - target) ? cur : prev
+  );
+  if (nearest === target) return table[nearest];
+  // Scale from the nearest preset using largest-remainder to guarantee sum === target
+  const base    = table[nearest];
+  const baseSum = base.hard + base.medium + base.easy || 1;
+  return allocateByDifficulty(target, base.hard, base.medium, base.easy, baseSum);
+}
 
 interface QueueCfg {
   dailyCount: number;
@@ -101,14 +121,43 @@ interface QueueCfg {
 }
 
 /**
- * Fix for Issue 1: previously daily_count from user_settings was loaded but
- * discarded — resolveConfig always computed dailyCount = preset sum (always 5).
- *
- * Now: for non-custom modes, scale the preset difficulty ratio to match the
- * user's chosen daily_count. E.g. Standard (2H+3M) at daily_count=7 →
- * 3H+4M (rounding, with remainder absorbed into easy).
+ * Integer slot allocator using the largest-remainder method.
+ * Guarantees hard + medium + easy === totalSlots regardless of rounding.
+ * Fixes bug #1/#6: Math.round could make the sum exceed totalSlots,
+ * producing more problems than allocated (e.g. 1H+1M from 1 slot).
  */
-function resolveConfig(settings: UserSettings | null, modeOverride?: DiffMode): QueueCfg {
+function allocateByDifficulty(
+  totalSlots: number,
+  hardPreset: number, mediumPreset: number, easyPreset: number,
+  presetTotal: number
+): { hard: number; medium: number; easy: number } {
+  if (totalSlots <= 0) return { hard: 0, medium: 0, easy: 0 };
+  const hF = totalSlots * hardPreset   / presetTotal;
+  const mF = totalSlots * mediumPreset / presetTotal;
+  const eF = totalSlots * easyPreset   / presetTotal;
+  let h = Math.floor(hF);
+  let m = Math.floor(mF);
+  let e = Math.floor(eF);
+  // Distribute remaining slots to highest fractional parts
+  const rem = totalSlots - h - m - e;
+  const fracs = [
+    { k: 'h' as const, f: hF - h },
+    { k: 'm' as const, f: mF - m },
+    { k: 'e' as const, f: eF - e },
+  ].sort((a, b) => b.f - a.f);
+  for (let i = 0; i < rem; i++) {
+    if      (fracs[i].k === 'h') h++;
+    else if (fracs[i].k === 'm') m++;
+    else                         e++;
+  }
+  return { hard: h, medium: m, easy: e };
+}
+
+/**
+ * Resolves the queue configuration from user settings + optional overrides.
+ * countOverride: comes from the regen modal's count picker (page.tsx "Get a fresh set")
+ */
+function resolveConfig(settings: UserSettings | null, modeOverride?: DiffMode, countOverride?: number): QueueCfg {
   const mode: DiffMode = modeOverride ?? (settings?.difficulty_mode as DiffMode) ?? 'standard';
 
   let hardCount: number;
@@ -116,29 +165,19 @@ function resolveConfig(settings: UserSettings | null, modeOverride?: DiffMode): 
   let easyCount: number;
 
   if (mode === 'custom' && settings) {
-    // Custom mode: use the explicit per-difficulty counts directly
     hardCount   = settings.hard_count   ?? QUEUE_CONFIG.hardCount;
     mediumCount = settings.medium_count ?? QUEUE_CONFIG.mediumCount;
     easyCount   = settings.easy_count   ?? QUEUE_CONFIG.easyCount;
-  } else if (mode !== 'custom') {
-    const preset     = MODE_PRESETS[mode];
-    const presetSum  = preset.hard + preset.medium + preset.easy || 1;
-    const target     = settings?.daily_count ?? presetSum;
-
-    if (target === presetSum) {
-      // No scaling needed
-      hardCount   = preset.hard;
-      mediumCount = preset.medium;
-      easyCount   = preset.easy;
-    } else {
-      // Scale preset ratio to the user's requested daily count
-      hardCount   = Math.round(target * preset.hard   / presetSum);
-      mediumCount = Math.round(target * preset.medium / presetSum);
-      easyCount   = target - hardCount - mediumCount; // absorb rounding into easy
-      // Guard against negative counts from rounding edge cases
-      if (easyCount   < 0) { mediumCount += easyCount;   easyCount   = 0; }
-      if (mediumCount < 0) { hardCount   += mediumCount; mediumCount = 0; }
+    // If a countOverride is given in custom mode, scale proportionally
+    if (countOverride && countOverride !== hardCount + mediumCount + easyCount) {
+      const total = hardCount + mediumCount + easyCount || 1;
+      ({ hard: hardCount, medium: mediumCount, easy: easyCount } =
+        allocateByDifficulty(countOverride, hardCount, mediumCount, easyCount, total));
     }
+  } else if (mode !== 'custom') {
+    // Use the hand-crafted preset table for the target count
+    const target = countOverride ?? settings?.daily_count ?? 5;
+    ({ hard: hardCount, medium: mediumCount, easy: easyCount } = resolvePreset(mode, target));
   } else {
     hardCount   = QUEUE_CONFIG.hardCount;
     mediumCount = QUEUE_CONFIG.mediumCount;
@@ -370,9 +409,10 @@ async function generateQueue(
   userId: string,
   date: string,
   settings: UserSettings | null,
-  modeOverride?: DiffMode
+  modeOverride?: DiffMode,
+  countOverride?: number   // explicit count from regen modal — overrides saved daily_count
 ): Promise<{ problems: ProblemWithStatus[]; exhausted: boolean; dailyCount: number }> {
-  const cfg = resolveConfig(settings, modeOverride);
+  const cfg = resolveConfig(settings, modeOverride, countOverride);
 
   // Fetch staleness map (subtypeKey → score) from last 30 days of SOLVED history
   const stalenessMap = await buildStalenessMap(supabase, userId, cfg.cooldownDays);
@@ -469,15 +509,13 @@ async function generateQueue(
   // For CSES this uses the same ratio as LC — if CSES pool has fewer hard
   // problems those slots automatically fall through to the filler path.
   const totalPreset = cfg.hardCount + cfg.mediumCount + cfg.easyCount || 1;
-  const lcHard      = Math.round(lcSlots   * cfg.hardCount   / totalPreset);
-  const lcMedium    = Math.round(lcSlots   * cfg.mediumCount / totalPreset);
-  const lcEasy      = lcSlots   - lcHard   - lcMedium;
-  const csesHard    = Math.round(csesSlots * cfg.hardCount   / totalPreset);
-  const csesMedium  = Math.round(csesSlots * cfg.mediumCount / totalPreset);
-  const csesEasy    = csesSlots - csesHard - csesMedium;
+  // Fix bug #1/#6: use allocateByDifficulty (largest-remainder) so
+  // lcHard+lcMedium+lcEasy === lcSlots and csesHard+csesMedium+csesEasy === csesSlots always.
+  const lc   = allocateByDifficulty(lcSlots,   cfg.hardCount, cfg.mediumCount, cfg.easyCount, totalPreset);
+  const cses = allocateByDifficulty(csesSlots, cfg.hardCount, cfg.mediumCount, cfg.easyCount, totalPreset);
 
-  const lcPicked   = useLc   ? sampleFromPool(lcPool,   lcSlots,   lcHard,   lcMedium,   lcEasy)   : [];
-  const csesPicked = useCses ? sampleFromPool(csesPool, csesSlots, csesHard, csesMedium, csesEasy) : [];
+  const lcPicked   = useLc   ? sampleFromPool(lcPool,   lcSlots,   lc.hard,   lc.medium,   lc.easy)   : [];
+  const csesPicked = useCses ? sampleFromPool(csesPool, csesSlots, cses.hard, cses.medium, cses.easy) : [];
 
   const selected = shuffle([...lcPicked, ...csesPicked]);
   const exhausted = selected.length < cfg.dailyCount;
@@ -575,8 +613,11 @@ export async function POST(req: Request) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = await req.json().catch(() => ({}));
-    const date = body.date ?? getTodayIST();
+    const date  = body.date ?? getTodayIST();
     const modeOverride: DiffMode | undefined = body.mode;
+    // Issue #9 fix: regen modal can send its own daily_count to override saved settings
+    const countOverride: number | undefined =
+      typeof body.daily_count === 'number' ? body.daily_count : undefined;
 
     const { data: settingsRow } = await supabase
       .from('user_settings')
@@ -587,7 +628,8 @@ export async function POST(req: Request) {
     const { problems, exhausted, dailyCount } = await generateQueue(
       supabase, user.id, date,
       settingsRow as UserSettings | null,
-      modeOverride
+      modeOverride,
+      countOverride
     );
 
     return NextResponse.json({ date, problems, exhausted, dailyCount, regenerated: true });

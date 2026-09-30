@@ -9,11 +9,21 @@ type DiffMode = 'chill' | 'standard' | 'grind' | 'custom';
 
 const DAILY_COUNT_OPTIONS = [3, 5, 7];
 
+// Explicit preset table (mirrors PRESET_DISTRIBUTIONS in api/queue/route.ts)
+const PRESET_TABLE: Record<
+  Exclude<DiffMode, 'custom'>,
+  Record<number, { hard_count: number; medium_count: number; easy_count: number }>
+> = {
+  chill:    { 3: { hard_count: 0, medium_count: 2, easy_count: 1 }, 5: { hard_count: 0, medium_count: 2, easy_count: 3 }, 7: { hard_count: 0, medium_count: 4, easy_count: 3 } },
+  standard: { 3: { hard_count: 1, medium_count: 2, easy_count: 0 }, 5: { hard_count: 1, medium_count: 3, easy_count: 1 }, 7: { hard_count: 2, medium_count: 3, easy_count: 2 } },
+  grind:    { 3: { hard_count: 2, medium_count: 1, easy_count: 0 }, 5: { hard_count: 2, medium_count: 3, easy_count: 0 }, 7: { hard_count: 3, medium_count: 4, easy_count: 0 } },
+};
+
 const DIFF_MODES: Array<{ key: DiffMode; label: string; desc: string }> = [
-  { key: 'chill',    label: '😌 Chill',    desc: '0H · 3M · 2E' },
-  { key: 'standard', label: '⚡ Standard', desc: '2H · 3M · 0E' },
-  { key: 'grind',    label: '🔥 Grind',    desc: '3H · 2M · 0E' },
-  { key: 'custom',   label: '⚙️ Custom',   desc: 'Set your own' },
+  { key: 'chill',    label: '😌 Chill',    desc: '0H · 2M · 1E → 0H · 4M · 3E' },
+  { key: 'standard', label: '⚡ Standard', desc: '1H · 2M → 2H · 3M · 2E'   },
+  { key: 'grind',    label: '🔥 Grind',    desc: '2H · 1M → 3H · 4M'         },
+  { key: 'custom',   label: '⚙️ Custom',   desc: 'Set your own'               },
 ];
 
 const DEFAULT_SETTINGS: UserSettings = {
@@ -68,15 +78,29 @@ export default function SettingsPage() {
   }, []);
 
   const setMode = (mode: DiffMode) => {
-    const presets: Record<Exclude<DiffMode, 'custom'>, { hard_count: number; medium_count: number; easy_count: number }> = {
-      chill:    { hard_count: 0, medium_count: 3, easy_count: 2 },
-      standard: { hard_count: 2, medium_count: 3, easy_count: 0 },
-      grind:    { hard_count: 3, medium_count: 2, easy_count: 0 },
-    };
     if (mode !== 'custom') {
-      setSettings(s => ({ ...s, difficulty_mode: mode, ...presets[mode], daily_count: presets[mode].hard_count + presets[mode].medium_count + presets[mode].easy_count }));
+      const count = settings.daily_count ?? 5;
+      // Pick nearest defined count in preset table
+      const nearest = [3, 5, 7].reduce((p, c) =>
+        Math.abs(c - count) < Math.abs(p - count) ? c : p
+      ) as 3 | 5 | 7;
+      const preset = PRESET_TABLE[mode][nearest];
+      setSettings(s => ({ ...s, difficulty_mode: mode, ...preset, daily_count: nearest }));
     } else {
       setSettings(s => ({ ...s, difficulty_mode: 'custom' }));
+    }
+  };
+
+  // #10: When daily_count changes in custom mode, auto-fill standard distribution for that count
+  const setDailyCount = (count: number) => {
+    if (settings.difficulty_mode === 'custom') {
+      const nearest = [3, 5, 7].reduce((p, c) =>
+        Math.abs(c - count) < Math.abs(p - count) ? c : p
+      ) as 3 | 5 | 7;
+      const preset = PRESET_TABLE['standard'][nearest];
+      setSettings(s => ({ ...s, daily_count: count, ...preset }));
+    } else {
+      setSettings(s => ({ ...s, daily_count: count }));
     }
   };
 
@@ -181,7 +205,7 @@ export default function SettingsPage() {
             {DAILY_COUNT_OPTIONS.map(n => (
               <button
                 key={n}
-                onClick={() => setSettings(s => ({ ...s, daily_count: n }))}
+                onClick={() => setDailyCount(n)}
                 style={pillBtnStyle(settings.daily_count === n)}
               >
                 {n}
@@ -494,7 +518,10 @@ export default function SettingsPage() {
             transition: 'opacity 0.15s',
           }}
         >
-          {regen ? '…' : '↺ Save & Regenerate Today\'s Queue'}
+          {regen
+            ? <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><span className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />Regenerating…</span>
+            : '↺ Save & Regenerate Today\'s Queue'
+          }
         </button>
       </div>
     </div>

@@ -6,11 +6,35 @@ import ProblemCard from '@/components/ProblemCard';
 
 type DiffMode = 'chill' | 'standard' | 'grind';
 
-const DIFF_MODES: Array<{ key: DiffMode; label: string; desc: string }> = [
-  { key: 'chill',    label: '😌 Chill',    desc: '3 Medium + 2 Easy'  },
-  { key: 'standard', label: '⚡ Standard', desc: '2 Hard + 3 Medium'  },
-  { key: 'grind',    label: '🔥 Grind',    desc: '3 Hard + 2 Medium'  },
+// Matches PRESET_DISTRIBUTIONS in api/queue/route.ts
+const PRESET_DISTRIBUTIONS: Record<DiffMode, Record<number, { hard: number; medium: number; easy: number }>> = {
+  chill:    { 3: { hard: 0, medium: 2, easy: 1 }, 5: { hard: 0, medium: 2, easy: 3 }, 7: { hard: 0, medium: 4, easy: 3 } },
+  standard: { 3: { hard: 1, medium: 2, easy: 0 }, 5: { hard: 1, medium: 3, easy: 1 }, 7: { hard: 2, medium: 3, easy: 2 } },
+  grind:    { 3: { hard: 2, medium: 1, easy: 0 }, 5: { hard: 2, medium: 3, easy: 0 }, 7: { hard: 3, medium: 4, easy: 0 } },
+};
+
+function modeDesc(mode: DiffMode, count: number): string {
+  const d = PRESET_DISTRIBUTIONS[mode][count];
+  const parts: string[] = [];
+  if (d.hard   > 0) parts.push(`${d.hard}H`);
+  if (d.medium > 0) parts.push(`${d.medium}M`);
+  if (d.easy   > 0) parts.push(`${d.easy}E`);
+  return parts.join(' · ');
+}
+
+const DIFF_MODES: Array<{ key: DiffMode; label: string }> = [
+  { key: 'chill',    label: '😌 Chill'    },
+  { key: 'standard', label: '⚡ Standard' },
+  { key: 'grind',    label: '🔥 Grind'    },
 ];
+
+function getGreeting(): { text: string; emoji: string } {
+  const h = new Date().getHours();
+  if (h >= 5  && h < 12) return { text: 'Good morning',   emoji: '🌅' };
+  if (h >= 12 && h < 17) return { text: 'Good afternoon', emoji: '☀️' };
+  if (h >= 17 && h < 21) return { text: 'Good evening',   emoji: '🌇' };
+  return                         { text: 'Good night',     emoji: '🌙' };
+}
 
 interface StreakData { streak: number; lastSolvedDate: string | null; }
 
@@ -20,16 +44,16 @@ export default function DailyQueuePage() {
   const [loading, setLoading]     = useState(true);
   const [regen, setRegen]         = useState(false);
   const [confirm, setConfirm]     = useState(false);
-  // Fix Issues 6 & 7: pre-populate from saved settings so "Get a fresh set"
-  // defaults to the user's configured mode instead of always starting at 'standard'
   const [diffMode, setDiffMode]   = useState<DiffMode>('standard');
+  // #9: count picker in regen modal — defaults to 5, will be overridden from saved settings
+  const [regenCount, setRegenCount] = useState<3 | 5 | 7>(5);
   const [streakData, setStreakData] = useState<StreakData>({ streak: 0, lastSolvedDate: null });
   const [exhausted, setExhausted] = useState(false);
-  const [expectedCount, setExpectedCount] = useState<number | null>(null); // UX #4
-  // UX #6: skip undo state
-  const [skipToast, setSkipToast]         = useState(false);
-  const [skipUndoTitle, setSkipUndoTitle] = useState('');
-  const [preSkipProblems, setPreSkipProblems] = useState<ProblemWithStatus[]>([]);
+  const [expectedCount, setExpectedCount] = useState<number | null>(null);
+  // Skip undo state
+  const [skipToast, setSkipToast]             = useState(false);
+  const [skipUndoTitle, setSkipUndoTitle]     = useState('');
+  const [preSkipProblems, setPreSkipProblems] = useState<ProblemWithStatus[]>([]); 
 
   const loadQueue = useCallback(async () => {
     setLoading(true);
@@ -54,7 +78,8 @@ export default function DailyQueuePage() {
       const res = await fetch('/api/queue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ mode: diffMode }),
+        // #9: send both mode AND daily_count so API ignores saved daily_count
+        body: JSON.stringify({ mode: diffMode, daily_count: regenCount }),
       });
       const data = await res.json();
       setProblems(data.problems ?? []);
@@ -77,14 +102,18 @@ export default function DailyQueuePage() {
       .then(d => setStreakData(d))
       .catch(() => {});
 
-    // Pre-populate regen mode picker with the user's saved default (Issues 6 & 7)
+    // Pre-populate regen mode + count from saved settings
     fetch('/api/settings')
       .then(r => r.json())
       .then(d => {
-        const saved = d?.settings?.difficulty_mode as string | undefined;
-        // Only apply if it's a mode the picker supports (not 'custom')
+        const s = d?.settings;
+        const saved = s?.difficulty_mode as string | undefined;
         if (saved && saved !== 'custom' && ['chill', 'standard', 'grind'].includes(saved)) {
           setDiffMode(saved as DiffMode);
+        }
+        const savedCount = s?.daily_count as number | undefined;
+        if (savedCount === 3 || savedCount === 5 || savedCount === 7) {
+          setRegenCount(savedCount);
         }
       })
       .catch(() => {});
@@ -180,6 +209,10 @@ export default function DailyQueuePage() {
     <div className="page-container">
       {/* Header */}
       <div style={{ marginBottom: '28px' }}>
+        {/* #11: time-based greeting */}
+        <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '4px' }}>
+          {(() => { const g = getGreeting(); return `${g.text} ${g.emoji}`; })()}
+        </p>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', marginBottom: '6px' }}>
           <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)' }}>
             Today&apos;s Queue
@@ -399,16 +432,35 @@ export default function DailyQueuePage() {
                   regenerating may remove {attempting > 1 ? 'them' : 'it'} from today&apos;s queue.
                 </p>
               )}
+              {/* Count picker — how many problems in the fresh set */}
+              <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                How many problems?
+              </p>
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                {([3, 5, 7] as const).map(n => (
+                  <button
+                    key={n}
+                    onClick={() => setRegenCount(n)}
+                    style={{
+                      background: regenCount === n ? 'var(--accent-blue)22' : 'var(--bg-elevated)',
+                      border: `1px solid ${regenCount === n ? 'var(--accent-blue)' : 'var(--border)'}`,
+                      borderRadius: '8px', padding: '7px 20px',
+                      color: regenCount === n ? 'var(--accent-blue)' : 'var(--text-secondary)',
+                      fontSize: '14px', fontWeight: regenCount === n ? 700 : 500,
+                      cursor: 'pointer', transition: 'all 0.15s',
+                    }}
+                  >{n}</button>
+                ))}
+              </div>
               {/* Difficulty mode picker */}
               <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
-                Pick a difficulty mode for the fresh set:
+                Pick a difficulty mode:
               </p>
               <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center' }}>
                 {DIFF_MODES.map(m => (
                   <button
                     key={m.key}
                     onClick={() => setDiffMode(m.key)}
-                    title={m.desc}
                     style={{
                       background: diffMode === m.key ? 'var(--accent-blue)22' : 'var(--bg-elevated)',
                       border: `1px solid ${diffMode === m.key ? 'var(--accent-blue)' : 'var(--border)'}`,
@@ -423,7 +475,7 @@ export default function DailyQueuePage() {
                   >
                     {m.label}
                     <span style={{ display: 'block', fontSize: '10px', fontWeight: 400, opacity: 0.7, marginTop: '2px' }}>
-                      {m.desc}
+                      {modeDesc(m.key, regenCount)}
                     </span>
                   </button>
                 ))}

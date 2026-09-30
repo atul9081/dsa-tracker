@@ -162,20 +162,14 @@ export default function ProblemCard({ problem, onStatusChange, onSkip }: Props) 
   };
 
   // ── Skip ──────────────────────────────────────────────────────────────────
-  const handleSkip = async () => {
+  // Skip is handled entirely by page.tsx (which also owns the undo toast).
+  // ProblemCard only provides the loading visual; API call lives in the parent.
+  const handleSkip = () => {
     setLoading('SKIP');
-    try {
-      const res = await fetch('/api/queue/skip', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ problem_id: problem.id }),
-      });
-      if (res.ok) onSkip?.(problem.id);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(null);
-    }
+    onSkip?.(problem.id);
+    // Loading is cleared when the parent swaps this card out.
+    // To avoid a stuck spinner if onSkip doesn't unmount, clear after 3s.
+    setTimeout(() => setLoading(null), 3000);
   };
 
   // ── Computed values ───────────────────────────────────────────────────────
