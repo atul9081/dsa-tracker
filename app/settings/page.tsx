@@ -479,7 +479,7 @@ export default function SettingsPage() {
           subtitle="Only the selected topics will be included in your daily queue. Deselect topics you want to skip or have already mastered."
         />
 
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
           <button
             onClick={selectAllTopics}
             style={{
@@ -503,7 +503,24 @@ export default function SettingsPage() {
           <span style={{ fontSize: '12px', color: 'var(--text-muted)', alignSelf: 'center', marginLeft: '4px' }}>
             {allEnabled ? OLT_TOPICS.length : enabledSet.size} / {OLT_TOPICS.length} selected
           </span>
+          {enabledSubTypes && Object.keys(enabledSubTypes).length > 0 && (
+            <>
+              <span style={{ color: 'var(--border)', fontSize: '12px' }}>|</span>
+              <button
+                onClick={() => setSettings(s => ({ ...s, enabled_sub_type_slugs: null }))}
+                title="Clear all sub-type filters and restore defaults"
+                style={{
+                  background: 'none', border: '1px solid var(--diff-hard)55',
+                  borderRadius: '6px', padding: '5px 12px',
+                  color: 'var(--diff-hard)', fontSize: '12px', cursor: 'pointer',
+                }}
+              >
+                ↺ Reset sub-type filters
+              </button>
+            </>
+          )}
         </div>
+
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
           {OLT_TOPICS.map(topic => {
