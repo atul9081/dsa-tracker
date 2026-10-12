@@ -42,17 +42,23 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Enrich with last_sign_in from auth.users (service role admin API)
+  // Enrich with last_sign_in + auth email fallback (service role admin API)
   const { data: authUsers } = await adminSupabase.auth.admin.listUsers();
   const lastSignInMap: Record<string, string | null> = {};
+  const authEmailMap:  Record<string, string | null> = {};
   if (authUsers) {
     for (const u of authUsers.users) {
       lastSignInMap[u.id] = u.last_sign_in_at ?? null;
+      authEmailMap[u.id]  = u.email ?? null;
     }
   }
 
   const users = (accessRows ?? []).map(row => ({
     ...row,
+    // Fall back to auth.users email/display_name for rows where the trigger
+    // didn't capture them (users who signed up before admin_panel.sql ran).
+    email:        row.email        ?? authEmailMap[row.user_id] ?? null,
+    display_name: row.display_name ?? authEmailMap[row.user_id] ?? null,
     last_sign_in: lastSignInMap[row.user_id] ?? null,
   }));
 

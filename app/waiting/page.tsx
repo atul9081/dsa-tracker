@@ -1,13 +1,29 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { createBrowserClient } from '@supabase/ssr';
 
 export default function WaitingPage() {
-  // Read ?reason= without useSearchParams (avoids Suspense requirement in Next.js 16)
-  const reason =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('reason')
-      : null;
+  // reason is reactive: read after mount so client-side URL changes are captured
+  const [reason, setReason]       = useState<string | null>(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  useEffect(() => {
+    // Read the ?reason= param from the live URL (not SSR-safe window)
+    setReason(new URLSearchParams(window.location.search).get('reason'));
+
+    // Check whether there is an active session so we can conditionally show
+    // the Sign Out button (only when logged in) and the Admin hint (only when
+    // NOT logged in, during maintenance, so an expired-session admin can re-auth).
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    );
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setIsLoggedIn(!!session);
+    });
+  }, []);
+
   const isMaintenance = reason === 'maintenance';
 
   const handleSignOut = async () => {
@@ -98,34 +114,37 @@ export default function WaitingPage() {
           </div>
         )}
 
-        {/* Sign out */}
-        <button
-          onClick={handleSignOut}
-          style={{
-            background: 'none',
-            border: '1px solid var(--border)',
-            borderRadius: '8px',
-            padding: '8px 20px',
-            color: 'var(--text-muted)',
-            fontSize: '13px',
-            cursor: 'pointer',
-            transition: 'all 0.15s',
-            width: '100%',
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.borderColor = 'var(--text-muted)';
-            e.currentTarget.style.color = 'var(--text-secondary)';
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.borderColor = 'var(--border)';
-            e.currentTarget.style.color = 'var(--text-muted)';
-          }}
-        >
-          Sign out
-        </button>
+        {/* Sign out — only shown when a session exists */}
+        {isLoggedIn && (
+          <button
+            onClick={handleSignOut}
+            style={{
+              background: 'none',
+              border: '1px solid var(--border)',
+              borderRadius: '8px',
+              padding: '8px 20px',
+              color: 'var(--text-muted)',
+              fontSize: '13px',
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              width: '100%',
+            }}
+            onMouseEnter={e => {
+              e.currentTarget.style.borderColor = 'var(--text-muted)';
+              e.currentTarget.style.color = 'var(--text-secondary)';
+            }}
+            onMouseLeave={e => {
+              e.currentTarget.style.borderColor = 'var(--border)';
+              e.currentTarget.style.color = 'var(--text-muted)';
+            }}
+          >
+            Sign out
+          </button>
+        )}
 
-        {/* Admin hint — only shown during maintenance so a logged-out admin can re-authenticate */}
-        {isMaintenance && (
+        {/* Admin hint — only shown during maintenance when NOT logged in.
+            Allows an admin whose session expired to find the login page. */}
+        {isMaintenance && !isLoggedIn && (
           <a
             href="/login"
             style={{

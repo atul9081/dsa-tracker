@@ -64,6 +64,63 @@ export async function middleware(request: NextRequest) {
   // Falls back to { approval_required: true, site_enabled: true } on any error.
   const settings = await getSystemSettings();
 
+  // ── /waiting smart redirect for logged-in users ───────────────────────────
+  // /waiting is PUBLIC so unauthenticated visitors always reach it.
+  // But a logged-in user hitting /waiting is re-evaluated on every request so
+  // they are never stuck here after an admin changes settings.
+  if (pathname.startsWith('/waiting') && user) {
+    const svcClient = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false } }
+    );
+    const { data: access } = await svcClient
+      .from('user_access')
+      .select('granted, is_admin')
+      .eq('user_id', user.id)
+      .single();
+
+    const isAdmin  = access?.is_admin === true;
+    const isGranted = access?.granted === true || isAdmin;
+
+    if (!settings.site_enabled) {
+      // Kill switch ON
+      if (isAdmin) {
+        // Admins bypass — send to the app
+        const dest = request.nextUrl.clone();
+        dest.pathname = '/';
+        dest.search = '';
+        return NextResponse.redirect(dest);
+      }
+      // Non-admin: ensure URL has ?reason=maintenance so page shows correct copy
+      if (request.nextUrl.searchParams.get('reason') !== 'maintenance') {
+        const dest = request.nextUrl.clone();
+        dest.searchParams.set('reason', 'maintenance');
+        return NextResponse.redirect(dest);
+      }
+      return supabaseResponse; // URL already correct — render the page
+    }
+
+    // Site is enabled
+    if (!settings.approval_required || isGranted) {
+      // Approval off OR user is granted/admin → send to the app
+      const dest = request.nextUrl.clone();
+      dest.pathname = '/';
+      dest.search = '';
+      return NextResponse.redirect(dest);
+    }
+
+    // Approval required AND not granted → correctly pending.
+    // Fix stale ?reason=maintenance if site just came back up.
+    if (request.nextUrl.searchParams.get('reason') === 'maintenance') {
+      const dest = request.nextUrl.clone();
+      dest.searchParams.delete('reason');
+      return NextResponse.redirect(dest);
+    }
+
+    return supabaseResponse; // correctly pending — render the page
+  }
+
   // 1. Not logged in → /login (or /waiting?reason=maintenance if site is down)
   if (!user && !isPublic) {
     const dest = request.nextUrl.clone();
@@ -118,6 +175,7 @@ export async function middleware(request: NextRequest) {
       if (!isGranted) {
         const waitingUrl = request.nextUrl.clone();
         waitingUrl.pathname = '/waiting';
+        waitingUrl.search = ''; // clear any stale ?reason= param
         return NextResponse.redirect(waitingUrl);
       }
 

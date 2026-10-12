@@ -148,9 +148,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <p style={{ fontSize: '12px', color: 'var(--text-muted)', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-          🔐 Access is invite-only. Sign up and request access, or ask for an invite link.
-        </p>
+
       </div>
 
       {/* Right — auth card */}
