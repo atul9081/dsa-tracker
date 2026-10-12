@@ -8,6 +8,7 @@ DSA Tracker is currently invite-only with a manual whitelist (`user_access` tabl
 Granting access requires a direct Supabase SQL update.
 
 This plan adds:
+
 1. **`/admin`** — real-time access management + analytics dashboard (you only)
 2. **`/`** — public landing page (before login), shows what the site is + waitlist form
 3. Routing change: daily queue moves `/` → `/home`
@@ -16,14 +17,14 @@ This plan adds:
 
 ## Decisions Log
 
-| # | Question | Decision |
-|---|---|---|
-| Q1 | Multiple admins? | `is_admin BOOLEAN` column on `user_access` — DB-driven, not hardcoded |
-| Q2 | User add flow | Option C — pre-approve by email AND approve pending sign-ups |
-| Q3 | Landing page route | `/` = public landing page; daily queue moves to `/home` |
-| Q4 | Analytics scope | Medium — solved count, queues generated, topics distribution, last active |
-| Q5 | Email notification | No — admin panel is enough |
-| Q6 | Revoke behaviour | Kicked on next page load (middleware re-checks on every request) |
+| #   | Question           | Decision                                                                  |
+| --- | ------------------ | ------------------------------------------------------------------------- |
+| Q1  | Multiple admins?   | `is_admin BOOLEAN` column on `user_access` — DB-driven, not hardcoded     |
+| Q2  | User add flow      | Option C — pre-approve by email AND approve pending sign-ups              |
+| Q3  | Landing page route | `/` = public landing page; daily queue moves to `/home`                   |
+| Q4  | Analytics scope    | Medium — solved count, queues generated, topics distribution, last active |
+| Q5  | Email notification | No — admin panel is enough                                                |
+| Q6  | Revoke behaviour   | Kicked on next page load (middleware re-checks on every request)          |
 
 ---
 
@@ -69,6 +70,7 @@ UPDATE user_access
 ```
 
 **Verify after migration:**
+
 ```sql
 SELECT user_id, email, is_admin, granted FROM user_access;
 ```
@@ -80,24 +82,26 @@ SELECT user_id, email, is_admin, granted FROM user_access;
 Admin check uses the DB `is_admin` field, dual-layered:
 
 **Layer 1 — Middleware** (server-side, blocks page render):
+
 ```typescript
 // middleware.ts
-if (pathname.startsWith('/admin')) {
+if (pathname.startsWith("/admin")) {
   const userId = session?.user?.id;
-  if (!userId) return NextResponse.redirect(new URL('/login', req.url));
+  if (!userId) return NextResponse.redirect(new URL("/login", req.url));
 
   // Check is_admin from user_access via service role
   const { data } = await adminSupabase
-    .from('user_access')
-    .select('is_admin')
-    .eq('user_id', userId)
+    .from("user_access")
+    .select("is_admin")
+    .eq("user_id", userId)
     .single();
 
-  if (!data?.is_admin) return NextResponse.redirect(new URL('/', req.url));
+  if (!data?.is_admin) return NextResponse.redirect(new URL("/", req.url));
 }
 ```
 
 **Layer 2 — API routes** (`/api/admin/*`):
+
 - All routes re-check `is_admin` from DB using service role before any operation
 - Service role key already in env (`SUPABASE_SERVICE_ROLE_KEY`)
 
@@ -105,14 +109,15 @@ if (pathname.startsWith('/admin')) {
 
 ## Routing Changes
 
-| Before | After | Notes |
-|---|---|---|
-| `/` | → `/home` | Daily queue (authenticated) |
-| `/` | Landing page | Public, no auth required |
-| (new) | `/admin` | Admin dashboard (is_admin = true only) |
-| `/login` | `/login` | Unchanged |
+| Before   | After        | Notes                                  |
+| -------- | ------------ | -------------------------------------- |
+| `/`      | → `/home`    | Daily queue (authenticated)            |
+| `/`      | Landing page | Public, no auth required               |
+| (new)    | `/admin`     | Admin dashboard (is_admin = true only) |
+| `/login` | `/login`     | Unchanged                              |
 
 **Files to update for routing:**
+
 - `app/page.tsx` → move to `app/home/page.tsx`
 - `middleware.ts` → update redirect targets (`/` → `/home` for authenticated users)
 - `components/Navbar.tsx` → update Home link to `/home`
@@ -156,12 +161,14 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 ### Phase 3 — Admin API (~25 min)
 
 **`app/api/admin/users/route.ts`** — GET list + POST pre-approve:
+
 ```typescript
 // GET → [{ user_id, email, display_name, granted, is_admin, requested_at, admin_notes, last_sign_in }]
 // POST { email } → pre-approve: INSERT INTO user_access (email, granted=true) for pre-signup
 ```
 
 **`app/api/admin/users/[userId]/route.ts`** — PATCH per-user actions:
+
 ```typescript
 // PATCH { granted: true | false }   → grant or revoke access
 // PATCH { is_admin: true | false }  → promote or demote admin
@@ -169,6 +176,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 ```
 
 **`app/api/admin/stats/route.ts`** — GET analytics:
+
 ```typescript
 // Returns per-user:
 // {
@@ -205,6 +213,7 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 ```
 
 Actions:
+
 - **Grant** / **Revoke** — instant DB update, badge updates in place
 - **✕** — delete pending user (they can re-sign-up; doesn't delete auth account)
 - **📝** — inline note editor (click to expand, save on blur)
@@ -227,6 +236,7 @@ Actions:
 **`app/page.tsx`** (public, no auth wrapper):
 
 Sections:
+
 1. **Hero** — name, tagline ("Blind-mode DSA practice. Built for OLT prep."), CTA buttons
 2. **How it works** — 3 cards: Queue → Reveal → Solve
 3. **Waitlist / Access form** — "Request Access" → email input → `POST /api/waitlist`
@@ -235,6 +245,7 @@ Sections:
 4. **Footer** — contact email, GitHub link (if public)
 
 **`app/api/waitlist/route.ts`** (public, no auth):
+
 ```typescript
 // POST { email } → INSERT INTO user_access (email, granted=false, requested_at=NOW())
 // ON CONFLICT (email) DO NOTHING  ← needs unique index on email
@@ -251,33 +262,38 @@ a "learn more" section above the auth form. No routing change needed. (See Q7.)
 
 ## Nothing-Breaks Guarantees
 
-| Scenario | Outcome |
-|---|---|
-| Non-admin visits `/admin` | Middleware checks DB, redirects to `/` |
-| Admin API called without session | 401 before any DB query |
-| Service role key missing | Admin routes return 500; regular users unaffected |
-| Migration not run yet | `is_admin` column missing → admin check falls back to hardcoded ID list (add fallback in middleware) |
-| `/home` not found after routing change | All internal links updated in same PR; no broken links |
-| Email column null (old user) | Display falls back to `user_id` truncated |
-| Revoke mid-session | Middleware re-checks `granted` on every request → kicked on next navigation |
-| Double waitlist submit | `ON CONFLICT DO NOTHING` on waitlist table |
+| Scenario                               | Outcome                                                                                              |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Non-admin visits `/admin`              | Middleware checks DB, redirects to `/`                                                               |
+| Admin API called without session       | 401 before any DB query                                                                              |
+| Service role key missing               | Admin routes return 500; regular users unaffected                                                    |
+| Migration not run yet                  | `is_admin` column missing → admin check falls back to hardcoded ID list (add fallback in middleware) |
+| `/home` not found after routing change | All internal links updated in same PR; no broken links                                               |
+| Email column null (old user)           | Display falls back to `user_id` truncated                                                            |
+| Revoke mid-session                     | Middleware re-checks `granted` on every request → kicked on next navigation                          |
+| Double waitlist submit                 | `ON CONFLICT DO NOTHING` on waitlist table                                                           |
 
 ---
 
 ## Open Questions
 
 **Q7. Landing page complexity — simple or full?**
-Option A *(simple)*: `/` = existing auth page with a "What is DSA Tracker?" section above login.
+Option A _(simple)_: `/` = existing auth page with a "What is DSA Tracker?" section above login.
 Zero routing change, no new `app/page.tsx`. Fast to ship.
-Option B *(full)*: Dedicated landing page at `/`, queue moves to `/home`. More work (~1h extra).
+Option B _(full)_: Dedicated landing page at `/`, queue moves to `/home`. More work (~1h extra).
 
 Recommendation: **Option A first** — get admin panel live, landing page is a nice-to-have.
 Can upgrade to Option B later when you want to make it public.
 
+- ok. fine.
+
 **Q8. Waitlist table vs. email on user_access?**
 If someone fills the waitlist form before signing up, we can't use `user_id` (they don't have one yet).
 Options:
+
 - Separate `waitlist(email, requested_at)` table — matched to user_id on first login
 - Just use the existing login flow and let them sign up → pending → admin approves
-Proposal: skip the pre-signup waitlist for now. User signs up → pending → you grant from admin panel.
-The "Request Access" button on landing = just the Supabase sign-up link.
+  Proposal: skip the pre-signup waitlist for now. User signs up → pending → you grant from admin panel.
+  The "Request Access" button on landing = just the Supabase sign-up link.
+
+- yes fine.
