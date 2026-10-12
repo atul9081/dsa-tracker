@@ -142,23 +142,7 @@ export default function WaitingPage() {
           </button>
         )}
 
-        {/* Admin hint — only shown during maintenance when NOT logged in.
-            Allows an admin whose session expired to find the login page. */}
-        {isMaintenance && !isLoggedIn && (
-          <a
-            href="/login"
-            style={{
-              fontSize: '12px',
-              color: 'var(--text-muted)',
-              textDecoration: 'none',
-              marginTop: '-8px',
-            }}
-            onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
-            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
-          >
-            Admin? → Sign in
-          </a>
-        )}
+
       </div>
     </div>
   );
