@@ -4,8 +4,15 @@ import { createClient } from '@/lib/supabase-server';
 /**
  * GET /api/queue/history?days=30
  *
- * Returns the most recent queue version for each day in the last N days.
- * Each entry includes problem details (current status, not status-at-time).
+ * Returns all queue versions for each day in the last N days, grouped by date.
+ * Each date entry exposes:
+ *   - versions[]  — all versions newest-first, each with its own problem list
+ *   - latest_solved_count / latest_total_count — convenience fields for the
+ *     collapsed row summary in the history page (uses the latest version)
+ *
+ * Changed from Plan 4: previously only returned the latest version per date.
+ * Now returns all versions so that completed queues from earlier in the day
+ * (before a regen) remain visible in history.
  */
 export async function GET(req: Request) {
   try {
@@ -20,7 +27,7 @@ export async function GET(req: Request) {
     since.setDate(since.getDate() - days);
     const sinceDate = since.toISOString().slice(0, 10);
 
-    // Fetch most recent version per date
+    // Fetch all versions for this user, newest date + version first
     const { data: historyRows, error } = await supabase
       .from('queue_history')
       .select('date, version, problem_ids, generated_at')
@@ -35,36 +42,59 @@ export async function GET(req: Request) {
       throw error;
     }
 
-    // Keep only the most recent version per date
-    const latestByDate = new Map<string, typeof historyRows[0]>();
-    for (const row of (historyRows ?? [])) {
-      if (!latestByDate.has(row.date)) latestByDate.set(row.date, row);
+    // Group rows by date — already sorted date DESC, version DESC
+    const byDate = new Map<string, typeof historyRows>();
+    for (const row of historyRows ?? []) {
+      if (!byDate.has(row.date)) byDate.set(row.date, []);
+      byDate.get(row.date)!.push(row);
     }
 
-    const result = [];
-    for (const [date, row] of latestByDate) {
-      const ids: number[] = row.problem_ids ?? [];
-      if (ids.length === 0) continue;
-
+    // Helper: fetch problems for a given set of ids, preserving queue order
+    async function fetchProblems(ids: number[]) {
+      if (ids.length === 0) return [];
       const { data: problems } = await supabase
         .from('problems_with_status')
         .select('id, title, difficulty, status, sub_type, source')
         .in('id', ids)
         .limit(ids.length + 10);
-
-      // Preserve original queue order
       const map = new Map((problems ?? []).map((p: { id: number }) => [p.id, p]));
-      const ordered = ids.map(id => map.get(id)).filter(Boolean);
-      const solvedCount = (ordered as Array<{ status: string } | undefined>)
-        .filter(p => p?.status === 'SOLVED').length;
+      return ids.map(id => map.get(id)).filter(Boolean);
+    }
+
+    const result = [];
+
+    for (const [date, rows] of byDate) {
+      if (!rows || rows.length === 0) continue;
+
+      // Build version entries (rows are already newest-first)
+      const versions = [];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const ids: number[] = row.problem_ids ?? [];
+        if (ids.length === 0) continue;
+
+        const ordered = await fetchProblems(ids);
+        const solvedCount = (ordered as Array<{ status: string } | undefined>)
+          .filter(p => p?.status === 'SOLVED').length;
+
+        versions.push({
+          version:      row.version,
+          is_latest:    i === 0,  // first row = highest version = latest
+          generated_at: row.generated_at,
+          problems:     ordered,
+          solved_count: solvedCount,
+          total_count:  ordered.length,
+        });
+      }
+
+      if (versions.length === 0) continue;
 
       result.push({
         date,
-        version: row.version,
-        generated_at: row.generated_at,
-        problems: ordered,
-        solved_count: solvedCount,
-        total_count: ordered.length,
+        // Convenience fields from the latest version for the collapsed summary row
+        latest_solved_count: versions[0].solved_count,
+        latest_total_count:  versions[0].total_count,
+        versions,
       });
     }
 

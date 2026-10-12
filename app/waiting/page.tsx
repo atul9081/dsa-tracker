@@ -3,6 +3,13 @@
 import { createBrowserClient } from '@supabase/ssr';
 
 export default function WaitingPage() {
+  // Read ?reason= without useSearchParams (avoids Suspense requirement in Next.js 16)
+  const reason =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('reason')
+      : null;
+  const isMaintenance = reason === 'maintenance';
+
   const handleSignOut = async () => {
     const supabase = createBrowserClient(
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -40,15 +47,15 @@ export default function WaitingPage() {
         <div style={{
           width: '64px', height: '64px',
           borderRadius: '50%',
-          background: 'var(--accent-amber)18',
-          border: '1px solid var(--accent-amber)44',
+          background: isMaintenance ? 'var(--accent-blue)18' : 'var(--accent-amber)18',
+          border: `1px solid ${isMaintenance ? 'var(--accent-blue)44' : 'var(--accent-amber)44'}`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           fontSize: '28px',
         }}>
-          ⏳
+          {isMaintenance ? '🔧' : '⏳'}
         </div>
 
-        {/* Heading */}
+        {/* Heading + body */}
         <div>
           <h1 style={{
             margin: '0 0 8px',
@@ -56,7 +63,7 @@ export default function WaitingPage() {
             fontWeight: 700,
             color: 'var(--text-primary)',
           }}>
-            Access Pending
+            {isMaintenance ? 'Down for Maintenance' : 'Access Pending'}
           </h1>
           <p style={{
             margin: 0,
@@ -64,29 +71,32 @@ export default function WaitingPage() {
             color: 'var(--text-secondary)',
             lineHeight: 1.6,
           }}>
-            Your account has been created successfully, but access hasn&apos;t been granted yet.
-            This is a private tool — reach out to request access.
+            {isMaintenance
+              ? 'The site is temporarily unavailable. Please check back soon.'
+              : "Your account has been created successfully, but access hasn't been granted yet. This is a private tool — reach out to request access."}
           </p>
         </div>
 
-        {/* Contact */}
-        <div style={{
-          background: 'var(--bg-elevated)',
-          border: '1px solid var(--border)',
-          borderRadius: '10px',
-          padding: '14px 20px',
-          width: '100%',
-        }}>
-          <p style={{ margin: '0 0 4px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
-            Contact
-          </p>
-          <a
-            href="mailto:intruderjsr@duck.com"
-            style={{ color: 'var(--accent-blue)', fontSize: '14px', fontWeight: 600, textDecoration: 'none' }}
-          >
-            intruderjsr@duck.com
-          </a>
-        </div>
+        {/* Contact — only shown while pending approval, not during maintenance */}
+        {!isMaintenance && (
+          <div style={{
+            background: 'var(--bg-elevated)',
+            border: '1px solid var(--border)',
+            borderRadius: '10px',
+            padding: '14px 20px',
+            width: '100%',
+          }}>
+            <p style={{ margin: '0 0 4px', fontSize: '11px', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+              Contact
+            </p>
+            <a
+              href="mailto:intruderjsr@duck.com"
+              style={{ color: 'var(--accent-blue)', fontSize: '14px', fontWeight: 600, textDecoration: 'none' }}
+            >
+              intruderjsr@duck.com
+            </a>
+          </div>
+        )}
 
         {/* Sign out */}
         <button
@@ -113,6 +123,23 @@ export default function WaitingPage() {
         >
           Sign out
         </button>
+
+        {/* Admin hint — only shown during maintenance so a logged-out admin can re-authenticate */}
+        {isMaintenance && (
+          <a
+            href="/login"
+            style={{
+              fontSize: '12px',
+              color: 'var(--text-muted)',
+              textDecoration: 'none',
+              marginTop: '-8px',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.color = 'var(--text-secondary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-muted)'; }}
+          >
+            Admin? → Sign in
+          </a>
+        )}
       </div>
     </div>
   );

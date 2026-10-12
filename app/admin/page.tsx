@@ -26,6 +26,16 @@ interface UserStat {
   last_active: string | null;
 }
 
+interface SysSettings {
+  approval_required: boolean;
+  site_enabled: boolean;
+}
+
+interface ConfirmModal {
+  field: 'approval_required' | 'site_enabled';
+  newValue: boolean;
+}
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function timeAgo(iso: string | null): string {
@@ -50,6 +60,69 @@ function shortEmail(u: AdminUser | UserStat): string {
 }
 
 // ── Styles ───────────────────────────────────────────────────────────────────
+
+// ── Toggle control ────────────────────────────────────────────────────────────
+
+function ToggleControl({
+  label, description, value, loading, onChange, dangerWhenOff = false,
+}: {
+  label: string;
+  description: string;
+  value: boolean;
+  loading: boolean;
+  onChange: (newValue: boolean) => void;
+  dangerWhenOff?: boolean;
+}) {
+  const activeColor = (dangerWhenOff && !value) ? 'var(--diff-hard)' : 'var(--accent-green)';
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+      <button
+        disabled={loading}
+        onClick={() => onChange(!value)}
+        title={value ? `Turn ${label} OFF` : `Turn ${label} ON`}
+        style={{
+          flexShrink: 0,
+          width: '38px', height: '22px',
+          borderRadius: '99px',
+          border: 'none',
+          background: loading ? 'var(--border)' : value ? activeColor : 'var(--bg-elevated)',
+          boxShadow: `inset 0 0 0 1px ${loading ? 'transparent' : value ? activeColor : 'var(--border)'}`,
+          cursor: loading ? 'not-allowed' : 'pointer',
+          position: 'relative',
+          transition: 'background 0.2s',
+          outline: 'none',
+        }}
+      >
+        <span style={{
+          position: 'absolute',
+          top: '3px',
+          left: value ? '19px' : '3px',
+          width: '16px', height: '16px',
+          borderRadius: '50%',
+          background: '#fff',
+          boxShadow: '0 1px 3px rgba(0,0,0,0.25)',
+          transition: 'left 0.2s',
+          display: 'block',
+        }} />
+      </button>
+      <div>
+        <p style={{ margin: 0, fontSize: '13px', fontWeight: 600, color: loading ? 'var(--text-muted)' : 'var(--text-primary)' }}>
+          {label}
+          <span style={{
+            marginLeft: '6px', fontSize: '10px', fontWeight: 700,
+            color: loading ? 'var(--text-muted)' : value ? 'var(--accent-green)' : (dangerWhenOff ? 'var(--diff-hard)' : 'var(--text-muted)'),
+          }}>
+            {loading ? '…' : value ? 'ON' : 'OFF'}
+          </span>
+        </p>
+        <p style={{ margin: '2px 0 0', fontSize: '11px', color: 'var(--text-muted)', lineHeight: 1.4 }}>
+          {description}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 
 const tableHeaderStyle: React.CSSProperties = {
   padding: '10px 14px',
@@ -106,8 +179,14 @@ export default function AdminPage() {
   const [addEmail, setAddEmail] = useState('');
   const [addMsg, setAddMsg]     = useState('');
   const [addLoading, setAddLoading] = useState(false);
-  const [editingNote, setEditingNote] = useState<string | null>(null); // user_id
+  const [editingNote, setEditingNote] = useState<string | null>(null);
   const [noteVal, setNoteVal]   = useState('');
+
+  // System settings state
+  const [sysSettings, setSysSettings]   = useState<SysSettings | null>(null);
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModal | null>(null);
+  const [confirmSaving, setConfirmSaving] = useState(false);
 
   const fetchUsers = useCallback(async () => {
     const res = await fetch('/api/admin/users');
@@ -126,7 +205,30 @@ export default function AdminPage() {
       await Promise.all([fetchUsers(), fetchStats()]);
       setLoading(false);
     })();
+
+    // Fetch system settings in parallel — failure just leaves toggles disabled
+    fetch('/api/admin/settings')
+      .then(r => r.json())
+      .then(d => { if (d.settings) setSysSettings(d.settings); })
+      .catch(() => {})
+      .finally(() => setSettingsLoading(false));
   }, [fetchUsers, fetchStats]);
+
+  const handleConfirmSetting = async () => {
+    if (!confirmModal) return;
+    setConfirmSaving(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [confirmModal.field]: confirmModal.newValue }),
+      });
+      const data = await res.json();
+      if (data.settings) setSysSettings(data.settings);
+    } catch { /* leave current state, user can retry */ }
+    setConfirmSaving(false);
+    setConfirmModal(null);
+  };
 
   const patch = async (userId: string, body: Record<string, unknown>) => {
     await fetch(`/api/admin/users/${userId}`, {
@@ -182,6 +284,108 @@ export default function AdminPage() {
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '32px 24px', fontFamily: 'var(--font-body)' }}>
+
+      {/* ── Sticky control bar ──────────────────────────────────────────── */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 100,
+        background: 'var(--bg-primary)',
+        borderBottom: '1px solid var(--border)',
+        padding: '14px 0 14px',
+        marginBottom: '20px',
+        display: 'flex', gap: '32px', alignItems: 'flex-start', flexWrap: 'wrap',
+      }}>
+        <ToggleControl
+          label="Approval Required"
+          description="When OFF, any signed-in user can access the app."
+          value={sysSettings?.approval_required ?? true}
+          loading={settingsLoading}
+          onChange={v => setConfirmModal({ field: 'approval_required', newValue: v })}
+          dangerWhenOff
+        />
+        <ToggleControl
+          label="Site Enabled"
+          description="Kill switch. When OFF, all non-admins see a maintenance page."
+          value={sysSettings?.site_enabled ?? true}
+          loading={settingsLoading}
+          onChange={v => setConfirmModal({ field: 'site_enabled', newValue: v })}
+          dangerWhenOff
+        />
+      </div>
+
+      {/* ── Confirmation modal ──────────────────────────────────────────── */}
+      {confirmModal && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 999,
+          background: 'rgba(0,0,0,0.55)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: '24px',
+        }}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border)',
+            borderRadius: '14px', padding: '28px 28px 24px',
+            maxWidth: '380px', width: '100%',
+            boxShadow: '0 16px 48px rgba(0,0,0,0.4)',
+          }}>
+            <p style={{ margin: '0 0 8px', fontSize: '15px', fontWeight: 700, color: 'var(--text-primary)' }}>
+              Confirm change
+            </p>
+            <p style={{ margin: '0 0 16px', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5 }}>
+              Turn <b>{confirmModal.field === 'approval_required' ? 'Approval Required' : 'Site Enabled'}</b>{' '}
+              <b style={{ color: confirmModal.newValue ? 'var(--accent-green)' : 'var(--diff-hard)' }}>
+                {confirmModal.newValue ? 'ON' : 'OFF'}
+              </b>?
+            </p>
+            {!confirmModal.newValue && confirmModal.field === 'site_enabled' && (
+              <p style={{
+                margin: '0 0 16px', fontSize: '12px',
+                color: 'var(--diff-hard)',
+                background: 'var(--diff-hard)11',
+                border: '1px solid var(--diff-hard)33',
+                borderRadius: '8px', padding: '8px 12px', lineHeight: 1.5,
+              }}>
+                ⚠ This will immediately redirect all non-admin users to a maintenance page.
+              </p>
+            )}
+            {!confirmModal.newValue && confirmModal.field === 'approval_required' && (
+              <p style={{
+                margin: '0 0 16px', fontSize: '12px',
+                color: 'var(--accent-amber)',
+                background: 'var(--accent-amber)11',
+                border: '1px solid var(--accent-amber)33',
+                borderRadius: '8px', padding: '8px 12px', lineHeight: 1.5,
+              }}>
+                ⚠ Any signed-in user will be able to access the app without approval.
+              </p>
+            )}
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setConfirmModal(null)}
+                disabled={confirmSaving}
+                style={{
+                  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+                  borderRadius: '7px', padding: '7px 16px',
+                  color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmSetting}
+                disabled={confirmSaving}
+                style={{
+                  background: confirmModal.newValue ? 'var(--accent-green)' : 'var(--diff-hard)',
+                  border: 'none', borderRadius: '7px', padding: '7px 18px',
+                  color: '#fff', fontSize: '13px', fontWeight: 600,
+                  cursor: confirmSaving ? 'not-allowed' : 'pointer',
+                  opacity: confirmSaving ? 0.7 : 1,
+                }}
+              >
+                {confirmSaving ? '…' : 'Confirm'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ marginBottom: '28px' }}>
