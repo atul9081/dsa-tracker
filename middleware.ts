@@ -137,6 +137,16 @@ export async function middleware(request: NextRequest) {
     return NextResponse.redirect(dest);
   }
 
+  // 1b. Site disabled + unauthenticated + on /login → maintenance page.
+  //     /auth/callback stays untouched (OAuth must complete).
+  //     /waiting stays untouched (that's where they're going anyway).
+  if (!user && !settings.site_enabled && pathname.startsWith('/login')) {
+    const dest = request.nextUrl.clone();
+    dest.pathname = '/waiting';
+    dest.searchParams.set('reason', 'maintenance');
+    return NextResponse.redirect(dest);
+  }
+
   // 2. Kill switch: site disabled → non-admins see maintenance page.
   //    Admins are checked here so they can still access the admin panel to re-enable.
   if (user && !isPublic && !settings.site_enabled) {
