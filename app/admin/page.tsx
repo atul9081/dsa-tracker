@@ -15,6 +15,14 @@ interface AdminUser {
   last_sign_in: string | null;
 }
 
+interface RemovedUser {
+  user_id: string;
+  email: string | null;
+  display_name: string | null;
+  requested_at: string | null;
+  last_sign_in: string | null;
+}
+
 interface UserStat {
   user_id: string;
   email: string | null;
@@ -51,11 +59,12 @@ function timeAgo(iso: string | null): string {
   return new Date(iso).toLocaleDateString('en', { month: 'short', year: '2-digit' });
 }
 
-function displayName(u: AdminUser | UserStat): string {
-  return u.display_name || u.email || u.user_id.slice(0, 8) + '…';
+function displayName(u: AdminUser | UserStat | RemovedUser): string {
+  // Never fall back to email — show '—' so the email below doesn't duplicate.
+  return u.display_name || '—';
 }
 
-function shortEmail(u: AdminUser | UserStat): string {
+function shortEmail(u: AdminUser | UserStat | RemovedUser): string {
   return u.email ?? u.user_id.slice(0, 12) + '…';
 }
 
@@ -174,6 +183,7 @@ const actionBtn = (color = 'var(--text-muted)'): React.CSSProperties => ({
 export default function AdminPage() {
   const [tab, setTab]           = useState<'users' | 'analytics'>('users');
   const [users, setUsers]       = useState<AdminUser[]>([]);
+  const [removedUsers, setRemovedUsers] = useState<RemovedUser[]>([]);
   const [stats, setStats]       = useState<UserStat[]>([]);
   const [loading, setLoading]   = useState(true);
   const [addEmail, setAddEmail] = useState('');
@@ -192,6 +202,7 @@ export default function AdminPage() {
     const res = await fetch('/api/admin/users');
     const data = await res.json();
     if (data.users) setUsers(data.users);
+    if (data.removedUsers) setRemovedUsers(data.removedUsers);
   }, []);
 
   const fetchStats = useCallback(async () => {
@@ -611,6 +622,59 @@ export default function AdminPage() {
               </table>
             </div>
           </div>
+
+          {/* Removed users — in auth.users but no user_access row */}
+          {removedUsers.length > 0 && (
+            <div style={{ marginTop: '20px' }}>
+              <h2 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                🚫 Removed ({removedUsers.length})
+              </h2>
+              <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: 1.5 }}>
+                These users exist in auth but have no access row (removed by admin or trigger failure).
+                Even with Approval OFF they remain blocked. Use Re-grant to restore access.
+              </p>
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
+                <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={tableHeaderStyle}>User</th>
+                      <th style={tableHeaderStyle}>Signed up</th>
+                      <th style={tableHeaderStyle}>Last seen</th>
+                      <th style={tableHeaderStyle}>Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {removedUsers.map(u => (
+                      <tr key={u.user_id}>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{displayName(u)}</div>
+                          <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>{shortEmail(u)}</div>
+                        </td>
+                        <td style={{ ...tdStyle, color: 'var(--text-muted)' }}>{timeAgo(u.requested_at)}</td>
+                        <td style={{ ...tdStyle, color: 'var(--text-muted)' }}>{timeAgo(u.last_sign_in)}</td>
+                        <td style={tdStyle}>
+                          <button
+                            onClick={async () => {
+                              if (!u.email) return;
+                              await fetch('/api/admin/users', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ email: u.email }),
+                              });
+                              await fetchUsers();
+                            }}
+                            style={actionBtn('var(--accent-green)')}
+                          >
+                            ✓ Re-grant
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

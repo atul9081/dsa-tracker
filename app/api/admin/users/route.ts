@@ -42,27 +42,50 @@ export async function GET() {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Enrich with last_sign_in + auth email fallback (service role admin API)
+  // Enrich with last_sign_in + identity info from auth.users (service role admin API)
   const { data: authUsers } = await adminSupabase.auth.admin.listUsers();
   const lastSignInMap: Record<string, string | null> = {};
   const authEmailMap:  Record<string, string | null> = {};
+  const authNameMap:   Record<string, string | null> = {};
+  const userAccessIds = new Set((accessRows ?? []).map(r => r.user_id));
+
   if (authUsers) {
     for (const u of authUsers.users) {
       lastSignInMap[u.id] = u.last_sign_in_at ?? null;
       authEmailMap[u.id]  = u.email ?? null;
+      // Prefer OAuth full_name/name — do NOT fall back to email for display_name
+      authNameMap[u.id]   =
+        (u.user_metadata?.full_name as string | undefined) ||
+        (u.user_metadata?.name     as string | undefined) ||
+        null;
     }
   }
 
   const users = (accessRows ?? []).map(row => ({
     ...row,
-    // Fall back to auth.users email/display_name for rows where the trigger
-    // didn't capture them (users who signed up before admin_panel.sql ran).
     email:        row.email        ?? authEmailMap[row.user_id] ?? null,
-    display_name: row.display_name ?? authEmailMap[row.user_id] ?? null,
+    // Only use a real name from metadata — never email — so the UI can show '—'
+    // when the user has no name rather than duplicating the email address.
+    display_name: row.display_name ?? authNameMap[row.user_id] ?? null,
     last_sign_in: lastSignInMap[row.user_id] ?? null,
   }));
 
-  return NextResponse.json({ users });
+  // Removed users: in auth.users but no user_access row (deleted by admin or trigger failure).
+  // Surfaced so admins can re-grant without needing to know the email from memory.
+  const removedUsers = (authUsers?.users ?? [])
+    .filter(u => !userAccessIds.has(u.id))
+    .map(u => ({
+      user_id:      u.id,
+      email:        u.email        ?? null,
+      display_name: authNameMap[u.id] ?? null,
+      granted:      null,
+      is_admin:     false,
+      requested_at: u.created_at   ?? null,
+      admin_notes:  null,
+      last_sign_in: lastSignInMap[u.id] ?? null,
+    }));
+
+  return NextResponse.json({ users, removedUsers });
 }
 
 // POST /api/admin/users — pre-approve an email before signup

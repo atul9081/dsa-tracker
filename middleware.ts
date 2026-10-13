@@ -81,7 +81,10 @@ export async function middleware(request: NextRequest) {
       .single();
 
     const isAdmin  = access?.is_admin === true;
-    const isGranted = access?.granted === true || isAdmin;
+    const isGranted = access?.granted  === true || isAdmin;
+    // Revoked = row exists with granted=false. Orphaned = no row (access is null).
+    // Revoked users stay blocked even when approval_required=OFF (D3).
+    const isExplicitlyRevoked = access !== null && access?.granted === false && !isAdmin;
 
     if (!settings.site_enabled) {
       // Kill switch ON
@@ -102,7 +105,8 @@ export async function middleware(request: NextRequest) {
     }
 
     // Site is enabled
-    if (!settings.approval_required || isGranted) {
+    // Let through: granted/admin, OR approval off AND not explicitly revoked
+    if (isGranted || (!settings.approval_required && !isExplicitlyRevoked)) {
       // Approval off OR user is granted/admin → send to the app
       const dest = request.nextUrl.clone();
       dest.pathname = '/';
@@ -202,22 +206,43 @@ export async function middleware(request: NextRequest) {
         }
       }
     } else {
-      // approval_required=false — still enforce /admin guard
+      // approval_required=false:
+      //   - Orphaned (no row) → allowed through (never reviewed)
+      //   - Pending (granted=false, first time) → also no explicit revocation → allowed
+      //   - Revoked (granted=false, row exists) → BLOCKED (explicit admin decision preserved)
+      //   - /admin route → always guarded regardless of toggle
+      const { data: access } = await supabase
+        .from('user_access')
+        .select('granted, is_admin')
+        .eq('user_id', user.id)
+        .single();
+
+      if (access !== null && access.granted === false && !access.is_admin) {
+        // Explicitly revoked — block even though approval toggle is off
+        const waitingUrl = request.nextUrl.clone();
+        waitingUrl.pathname = '/waiting';
+        waitingUrl.search = '';
+        return NextResponse.redirect(waitingUrl);
+      }
+
+      // /admin guard
       if (pathname.startsWith('/admin')) {
-        const adminClient = createClient(
-          process.env.NEXT_PUBLIC_SUPABASE_URL!,
-          process.env.SUPABASE_SERVICE_ROLE_KEY!,
-          { auth: { persistSession: false } }
-        );
-        const { data: adminAccess } = await adminClient
-          .from('user_access')
-          .select('is_admin')
-          .eq('user_id', user.id)
-          .single();
-        if (!adminAccess?.is_admin) {
-          const homeUrl = request.nextUrl.clone();
-          homeUrl.pathname = '/';
-          return NextResponse.redirect(homeUrl);
+        if (!access?.is_admin) {
+          const adminClient = createClient(
+            process.env.NEXT_PUBLIC_SUPABASE_URL!,
+            process.env.SUPABASE_SERVICE_ROLE_KEY!,
+            { auth: { persistSession: false } }
+          );
+          const { data: adminAccess } = await adminClient
+            .from('user_access')
+            .select('is_admin')
+            .eq('user_id', user.id)
+            .single();
+          if (!adminAccess?.is_admin) {
+            const homeUrl = request.nextUrl.clone();
+            homeUrl.pathname = '/';
+            return NextResponse.redirect(homeUrl);
+          }
         }
       }
     }
