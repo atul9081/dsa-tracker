@@ -1,8 +1,8 @@
 # Public Sharing Safety Audit
 
 > Full audit of every attack surface before sharing the link publicly.
-> Verdict: **Safe to share with approval_required=ON** (current default).
-> Read the two open issues at the bottom before turning approval OFF.
+> Verdict: **✅ Safe to share publicly** — all checks passed (Oct 13, 2026).
+> Both open verification items confirmed. See the Verification Log at the bottom.
 
 ---
 
@@ -29,7 +29,7 @@ So email signup doesn't bypass approval — the user lands on `/waiting` just li
 > [!IMPORTANT]
 > **Check**: Supabase Dashboard → Authentication → Settings → "Enable email confirmations" should be **ON**. If it's off, anyone can create an account instantly without confirming their email.
 
-**Verdict**: ✅ Safe if email confirmations are ON. Verify in Supabase.
+**Verdict**: ✅ Safe. Email confirmations confirmed ON (Oct 13, 2026).
 
 ---
 
@@ -63,7 +63,7 @@ row.user_id = user.id; // never from body
 >
 > The application code filters correctly, but RLS is the actual enforcement layer if someone hits Supabase directly.
 
-**Verdict**: ⚠️ Depends on RLS config. App code is correct, but verify RLS is ON with proper policies on all user-scoped tables. `problems` and `problem_tags` can be read by anyone (public data, no issue).
+**Verdict**: ✅ Safe. RLS confirmed ON with correct `user_id = auth.uid()` policies on all user-scoped tables (Oct 13, 2026). See Verification Log for full output.
 
 ---
 
@@ -154,47 +154,45 @@ The redirect URI is constructed from `window.location.origin` — not from any u
 
 ## Summary
 
-| Surface                        | Status                                   | Action needed                                                                           |
-| ------------------------------ | ---------------------------------------- | --------------------------------------------------------------------------------------- |
-| API auth (401 without session) | ✅ Safe                                  | None                                                                                    |
-| Email signup bypass            | ✅ Safe if email confirmations ON        | **Verify in Supabase**                                                                  |
-| RLS on user tables             | ⚠️ Verify                                | **Check RLS on user_progress, user_settings, daily_queues, queue_history, user_access** |
-| Admin privilege escalation     | ✅ Safe if RLS blocks user_access UPDATE | **Check user_access UPDATE policy**                                                     |
-| Skip/regen API abuse           | ✅ Acceptable now                        | Watch if user group grows                                                               |
-| Service role key exposure      | ✅ Safe                                  | None                                                                                    |
-| Cross-user data                | ✅ Safe                                  | None                                                                                    |
-| OAuth redirect hijack          | ✅ Safe                                  | None                                                                                    |
+| Surface                        | Status  | Action needed                                                                           |
+| ------------------------------ | ------- | --------------------------------------------------------------------------------------- |
+| API auth (401 without session) | ✅ Safe | None                                                                                    |
+| Email signup bypass            | ✅ Safe | Email confirmations confirmed ON                                                        |
+| RLS on user tables             | ✅ Safe | RLS confirmed ON, policies verified                                                     |
+| Admin privilege escalation     | ✅ Safe | user_access has SELECT-only policy for regular users                                    |
+| Skip/regen API abuse           | ✅ Safe | Acceptable for small trusted group                                                      |
+| Service role key exposure      | ✅ Safe | None                                                                                    |
+| Cross-user data                | ✅ Safe | None                                                                                    |
+| OAuth redirect hijack          | ✅ Safe | None                                                                                    |
 
 ---
 
-## The two things to verify right now
+## ✅ Verification Log (Oct 13, 2026)
 
-### 1. Email confirmations
+### 1. Email confirmations — CONFIRMED ON
+Supabase Dashboard → Authentication → Settings → "Enable email confirmations" = **ON**.
 
-Supabase Dashboard → Authentication → Settings → **"Enable email confirmations"** = ON.
+### 2. RLS policies — CONFIRMED
 
-### 2. RLS policies
+```
+| schemaname | tablename     | rowsecurity |
+| ---------- | ------------- | ----------- |
+| public     | daily_queues  | true        |
+| public     | queue_history | true        |
+| public     | user_access   | true        |
+| public     | user_progress | true        |
+| public     | user_settings | true        |
 
-Run this in Supabase SQL Editor to check:
-
-```sql
-SELECT
-  schemaname,
-  tablename,
-  rowsecurity
-FROM pg_tables
-WHERE schemaname = 'public'
-  AND tablename IN ('user_progress','user_settings','daily_queues','queue_history','user_access');
-
--- Also check what policies exist:
-SELECT tablename, policyname, cmd, qual
-FROM pg_policies
-WHERE schemaname = 'public'
-  AND tablename IN ('user_progress','user_settings','daily_queues','queue_history','user_access');
+| tablename     | policyname        | cmd    | qual                   |
+| ------------- | ----------------- | ------ | ---------------------- |
+| daily_queues  | own_queues        | ALL    | (user_id = auth.uid()) |
+| queue_history | own_queue_history | ALL    | (user_id = auth.uid()) |
+| user_access   | own_access_read   | SELECT | (user_id = auth.uid()) |
+| user_progress | own_progress      | ALL    | (user_id = auth.uid()) |
+| user_settings | own_settings      | ALL    | (user_id = auth.uid()) |
 ```
 
-Key things to confirm:
+**Key finding**: `user_access` has SELECT-only policy — regular users cannot write `granted=true` or `is_admin=true` to their own row. All writes go through the service role key (server-only).
 
-- All five tables: `rowsecurity = true`
-- `user_access`: no UPDATE/INSERT policy for authenticated role (only service role can write `granted` and `is_admin`)
-- Other tables: SELECT/INSERT/UPDATE policy scoped to `user_id = auth.uid()`
+**Final verdict: ✅ Safe to share publicly.**
+
