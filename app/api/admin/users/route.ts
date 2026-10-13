@@ -37,7 +37,7 @@ export async function GET() {
   // Fetch user_access rows
   const { data: accessRows, error } = await adminSupabase
     .from('user_access')
-    .select('user_id, email, display_name, granted, is_admin, requested_at, admin_notes')
+    .select('user_id, email, display_name, granted, revoked, is_admin, requested_at, admin_notes')
     .order('requested_at', { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -102,10 +102,10 @@ export async function POST(req: Request) {
   const existingUser = authList?.users.find(u => u.email === email);
 
   if (existingUser) {
-    // User already signed up — just grant access
+    // User already signed up — grant access and clear any revocation
     const { error } = await adminSupabase
       .from('user_access')
-      .upsert({ user_id: existingUser.id, email, granted: true }, { onConflict: 'user_id' });
+      .upsert({ user_id: existingUser.id, email, granted: true, revoked: false }, { onConflict: 'user_id' });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
     return NextResponse.json({ status: 'granted_existing' });
   }

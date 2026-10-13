@@ -42,6 +42,12 @@ export async function PATCH(
   if ('granted'     in body) update.granted     = Boolean(body.granted);
   if ('is_admin'    in body) update.is_admin    = Boolean(body.is_admin);
   if ('admin_notes' in body) update.admin_notes = String(body.admin_notes);
+  if ('revoked'     in body) update.revoked     = Boolean(body.revoked);
+
+  // Granting always clears revoked — a blacklisted user is cleanly restored
+  if (update.granted === true) update.revoked = false;
+  // Revoking access (granted=false, no explicit revoked field) → back to Pending, not Blacklisted
+  if (update.granted === false && !('revoked' in body)) update.revoked = false;
 
   if (Object.keys(update).length === 0)
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
@@ -55,7 +61,9 @@ export async function PATCH(
   return NextResponse.json({ ok: true });
 }
 
-// DELETE /api/admin/users/[userId] — remove pending user row
+// DELETE /api/admin/users/[userId] — blacklist a pending user (sets revoked=true)
+// Row is kept — user appears in the Blacklisted section and stays blocked
+// even when approval_required=OFF. Cannot blacklist a granted or admin user.
 export async function DELETE(
   _req: Request,
   { params }: { params: Promise<{ userId: string }> }
@@ -65,7 +73,7 @@ export async function DELETE(
 
   const { userId } = await params;
 
-  // Safety: never delete a granted user — only pending (granted=false)
+  // Safety: cannot blacklist a granted or admin user
   const { data: row } = await adminSupabase
     .from('user_access')
     .select('granted, is_admin')
@@ -73,11 +81,11 @@ export async function DELETE(
     .single();
 
   if (row?.granted || row?.is_admin)
-    return NextResponse.json({ error: 'Cannot delete a granted or admin user' }, { status: 400 });
+    return NextResponse.json({ error: 'Cannot blacklist a granted or admin user' }, { status: 400 });
 
   const { error } = await adminSupabase
     .from('user_access')
-    .delete()
+    .update({ revoked: true })
     .eq('user_id', userId);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

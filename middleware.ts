@@ -76,15 +76,15 @@ export async function middleware(request: NextRequest) {
     );
     const { data: access } = await svcClient
       .from('user_access')
-      .select('granted, is_admin')
+      .select('granted, is_admin, revoked')
       .eq('user_id', user.id)
       .single();
 
     const isAdmin  = access?.is_admin === true;
     const isGranted = access?.granted  === true || isAdmin;
-    // Revoked = row exists with granted=false. Orphaned = no row (access is null).
-    // Revoked users stay blocked even when approval_required=OFF (D3).
-    const isExplicitlyRevoked = access !== null && access?.granted === false && !isAdmin;
+    // Revoked = admin explicitly blacklisted this user (revoked=true).
+    // Pending = granted=false but revoked=false — never explicitly blocked.
+    const isExplicitlyRevoked = access?.revoked === true && !isAdmin;
 
     if (!settings.site_enabled) {
       // Kill switch ON
@@ -213,12 +213,12 @@ export async function middleware(request: NextRequest) {
       //   - /admin route → always guarded regardless of toggle
       const { data: access } = await supabase
         .from('user_access')
-        .select('granted, is_admin')
+        .select('granted, is_admin, revoked')
         .eq('user_id', user.id)
         .single();
 
-      if (access !== null && access.granted === false && !access.is_admin) {
-        // Explicitly revoked — block even though approval toggle is off
+      if (access?.revoked === true && !access.is_admin) {
+        // Explicitly blacklisted — blocked even though approval toggle is off
         const waitingUrl = request.nextUrl.clone();
         waitingUrl.pathname = '/waiting';
         waitingUrl.search = '';

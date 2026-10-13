@@ -9,6 +9,7 @@ interface AdminUser {
   email: string | null;
   display_name: string | null;
   granted: boolean;
+  revoked: boolean;
   is_admin: boolean;
   requested_at: string | null;
   admin_notes: string | null;
@@ -251,7 +252,7 @@ export default function AdminPage() {
   };
 
   const deleteUser = async (userId: string) => {
-    if (!confirm('Remove this pending user?')) return;
+    if (!confirm('Blacklist this user? They will be blocked even when Approval is OFF.')) return;
     await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' });
     await fetchUsers();
   };
@@ -289,9 +290,10 @@ export default function AdminPage() {
     </div>
   );
 
-  const pending  = users.filter(u => !u.granted && !u.is_admin);
-  const granted  = users.filter(u => u.granted && !u.is_admin);
-  const admins   = users.filter(u => u.is_admin);
+  const pending     = users.filter(u => !u.granted && !u.is_admin && !u.revoked);
+  const granted     = users.filter(u => u.granted && !u.is_admin);
+  const admins      = users.filter(u => u.is_admin);
+  const blacklisted = users.filter(u => u.revoked && !u.is_admin);
 
   return (
     <div style={{ maxWidth: '1100px', margin: '0 auto', padding: '32px 24px', fontFamily: 'var(--font-body)' }}>
@@ -405,7 +407,7 @@ export default function AdminPage() {
           <h1 style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>Admin Panel</h1>
         </div>
         <p style={{ fontSize: '13px', color: 'var(--text-muted)', margin: 0 }}>
-          {users.length} users total · {pending.length} pending · {granted.length} with access
+          {users.length} users total · {pending.length} pending · {granted.length} with access{blacklisted.length > 0 ? ` · ${blacklisted.length} blacklisted` : ''}
         </p>
       </div>
 
@@ -505,7 +507,7 @@ export default function AdminPage() {
                               ✓ Grant
                             </button>
                             <button onClick={() => deleteUser(u.user_id)} style={actionBtn('var(--diff-hard)')}>
-                              ✕ Remove
+                              🚫 Blacklist
                             </button>
                           </div>
                         </td>
@@ -623,28 +625,27 @@ export default function AdminPage() {
             </div>
           </div>
 
-          {/* Removed users — in auth.users but no user_access row */}
-          {removedUsers.length > 0 && (
+          {/* Blacklisted users — explicitly blocked by admin (revoked=true) */}
+          {blacklisted.length > 0 && (
             <div style={{ marginTop: '20px' }}>
-              <h2 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
-                🚫 Removed ({removedUsers.length})
+              <h2 style={{ fontSize: '13px', fontWeight: 700, color: 'var(--diff-hard)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+                🚫 Blacklisted ({blacklisted.length})
               </h2>
               <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px', lineHeight: 1.5 }}>
-                These users exist in auth but have no access row (removed by admin or trigger failure).
-                Even with Approval OFF they remain blocked. Use Re-grant to restore access.
+                Blocked by admin. These users cannot access the app even when Approval is OFF.
               </p>
-              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden' }}>
+              <div style={{ background: 'var(--bg-card)', border: '1px solid var(--diff-hard)33', borderRadius: '10px', overflow: 'hidden' }}>
                 <table style={{ width: '100%', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr>
                       <th style={tableHeaderStyle}>User</th>
-                      <th style={tableHeaderStyle}>Signed up</th>
+                      <th style={tableHeaderStyle}>Joined</th>
                       <th style={tableHeaderStyle}>Last seen</th>
                       <th style={tableHeaderStyle}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {removedUsers.map(u => (
+                    {blacklisted.map(u => (
                       <tr key={u.user_id}>
                         <td style={tdStyle}>
                           <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{displayName(u)}</div>
@@ -653,20 +654,20 @@ export default function AdminPage() {
                         <td style={{ ...tdStyle, color: 'var(--text-muted)' }}>{timeAgo(u.requested_at)}</td>
                         <td style={{ ...tdStyle, color: 'var(--text-muted)' }}>{timeAgo(u.last_sign_in)}</td>
                         <td style={tdStyle}>
-                          <button
-                            onClick={async () => {
-                              if (!u.email) return;
-                              await fetch('/api/admin/users', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ email: u.email }),
-                              });
-                              await fetchUsers();
-                            }}
-                            style={actionBtn('var(--accent-green)')}
-                          >
-                            ✓ Re-grant
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px' }}>
+                            <button
+                              onClick={() => patch(u.user_id, { revoked: false })}
+                              style={actionBtn('var(--accent-green)')}
+                            >
+                              ↩ Restore to Pending
+                            </button>
+                            <button
+                              onClick={() => patch(u.user_id, { granted: true })}
+                              style={actionBtn('var(--text-muted)')}
+                            >
+                              ✓ Grant
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
