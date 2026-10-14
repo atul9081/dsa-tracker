@@ -4,6 +4,208 @@
 
 ---
 
+## Diagrams
+
+### 1 — System Architecture
+
+```mermaid
+graph TD
+    Browser["🌐 Browser"]
+
+    subgraph Vercel ["Vercel (Edge + Serverless)"]
+        MW["middleware.ts\n(Edge Runtime)"]
+        Pages["Next.js Pages\n/ /admin /history …"]
+        API["API Routes\n/api/queue /api/progress …"]
+    end
+
+    subgraph Supabase ["Supabase"]
+        Auth["Auth\n(Google OAuth / Email)"]
+        DB["PostgreSQL\nproblems · user_progress\ndaily_queues · user_access\nqueue_history · user_settings\nsystem_settings"]
+    end
+
+    Browser -->|"HTTPS request"| MW
+    MW -->|"pass / redirect"| Pages
+    Pages -->|"fetch()"| API
+    MW -->|"system_settings read\n(service role)"| DB
+    API -->|"anon key + session cookie"| DB
+    API -->|"service role\n(admin routes)"| DB
+    Browser -->|"OAuth flow"| Auth
+    Auth -->|"auth.users"| DB
+```
+
+---
+
+### 2 — Database Schema (ER)
+
+```mermaid
+erDiagram
+    auth_users {
+        uuid id PK
+        text email
+        jsonb raw_user_meta_data
+    }
+
+    problems {
+        int id PK
+        text title
+        text title_slug
+        text difficulty
+        text[] topic_tags
+        text sub_type
+        text source
+        numeric olt_score
+        boolean paid_only
+    }
+
+    user_progress {
+        uuid user_id FK
+        int problem_id FK
+        text status
+        timestamptz updated_at
+        timestamptz attempt_started_at
+        int solve_duration_secs
+        timestamptz first_attempted_at
+    }
+
+    daily_queues {
+        uuid user_id FK
+        date date
+        int[] problem_ids
+        timestamptz generated_at
+    }
+
+    queue_history {
+        bigint id PK
+        uuid user_id FK
+        date date
+        int[] problem_ids
+        int version
+        timestamptz generated_at
+    }
+
+    user_settings {
+        uuid user_id FK
+        int daily_count
+        int hard_count
+        int medium_count
+        int easy_count
+        text difficulty_mode
+        text[] enabled_topic_slugs
+        jsonb topic_weight_overrides
+        text[] enabled_sources
+        int cooldown_days
+    }
+
+    user_access {
+        uuid user_id FK
+        boolean granted
+        boolean revoked
+        boolean is_admin
+        text email
+        text display_name
+        timestamptz requested_at
+        text admin_notes
+    }
+
+    system_settings {
+        int id PK
+        boolean approval_required
+        boolean site_enabled
+        timestamptz updated_at
+    }
+
+    auth_users ||--o{ user_progress : "tracks"
+    auth_users ||--o{ daily_queues : "has"
+    auth_users ||--o{ queue_history : "generates"
+    auth_users ||--o| user_settings : "configures"
+    auth_users ||--o| user_access : "gated by"
+    problems ||--o{ user_progress : "tracked in"
+```
+
+---
+
+### 3 — Middleware Decision Flow
+
+```mermaid
+flowchart TD
+    Start(["Request"]) --> GetUser["getUser() + getSystemSettings()"]
+    GetUser --> IsWaiting{"/waiting\n+ logged in?"}
+
+    IsWaiting -->|"yes"| WaitingBlock["Fetch user_access\n(granted, is_admin, revoked)"]
+    WaitingBlock --> SiteOff1{site_enabled\nOFF?}
+    SiteOff1 -->|"admin"| RedirectHome1["→ /"]
+    SiteOff1 -->|"non-admin"| EnsureMaintenance["ensure ?reason=maintenance"]
+    SiteOff1 -->|"site ON"| CanPass1{"granted OR\napproval=OFF AND\nnot revoked?"}
+    CanPass1 -->|"yes"| RedirectHome2["→ /"]
+    CanPass1 -->|"no"| FixReason["fix stale ?reason=\nrender /waiting"]
+
+    IsWaiting -->|"no"| NoUser{user?}
+    NoUser -->|"no + non-public"| SiteDown1{site OFF?}
+    SiteDown1 -->|"yes"| Maintenance1["→ /waiting?reason=maintenance"]
+    SiteDown1 -->|"no"| Login1["→ /login"]
+
+    NoUser -->|"no + /login"| SiteDown2{site OFF?}
+    SiteDown2 -->|"yes"| Maintenance2["→ /waiting?reason=maintenance"]
+    SiteDown2 -->|"no"| PassLogin["pass through /login"]
+
+    NoUser -->|"yes"| KillSwitch{site OFF\n+ not public?}
+    KillSwitch -->|"yes"| IsAdmin1{is_admin?}
+    IsAdmin1 -->|"no"| Maintenance3["→ /waiting?reason=maintenance"]
+    IsAdmin1 -->|"yes"| Continue["fall through"]
+
+    KillSwitch -->|"no"| ApprovalCheck{approval\nrequired?}
+    ApprovalCheck -->|"ON"| FetchAccess1["fetch user_access"]
+    FetchAccess1 --> Granted{granted\nor is_admin?}
+    Granted -->|"no"| Waiting1["→ /waiting"]
+    Granted -->|"yes"| AdminRoute1{"/admin?"}
+    AdminRoute1 -->|"not admin"| Home1["→ /"]
+    AdminRoute1 -->|"admin"| Pass1["✅ pass"]
+
+    ApprovalCheck -->|"OFF"| FetchAccess2["fetch user_access\n(+ revoked)"]
+    FetchAccess2 --> Revoked{revoked=true?}
+    Revoked -->|"yes"| Waiting2["→ /waiting"]
+    Revoked -->|"no"| AdminRoute2{"/admin?"}
+    AdminRoute2 -->|"not admin"| Home2["→ /"]
+    AdminRoute2 -->|"admin"| Pass2["✅ pass"]
+```
+
+---
+
+### 4 — User Lifecycle State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Pending : signs up\n(trigger creates row\ngranted=false, revoked=false)
+
+    Pending --> Granted : admin clicks Grant
+    Pending --> Blacklisted : admin clicks Blacklist\n(revoked=true)
+
+    Granted --> Pending : admin clicks Revoke\n(granted=false, revoked=false)
+    Granted --> Admin : admin promotes\n(is_admin=true)
+
+    Blacklisted --> Pending : admin clicks Restore\n(revoked=false)
+    Blacklisted --> Granted : admin clicks Grant\n(granted=true, revoked=false)
+
+    Admin --> Granted : admin demotes\n(is_admin=false)
+
+    note right of Pending
+        approval=OFF → app access ✅
+        approval=ON  → /waiting
+    end note
+
+    note right of Blacklisted
+        Always blocked
+        even when approval=OFF
+    end note
+
+    note right of Admin
+        Bypasses kill switch
+        Always has app access
+    end note
+```
+
+---
+
 ## Overview
 
 DSA Tracker is a personal, invite-only web application for tracking LeetCode and other DSA problem-solving progress. It generates personalised daily queues, tracks streaks and history, and provides an admin panel for user access management.
